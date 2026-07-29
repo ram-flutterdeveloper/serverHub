@@ -1,0 +1,192 @@
+
+API/
+
+01-Authentication.md
+02-Users.md
+03-Providers.md
+04-Categories.md
+05-Services.md
+06-Bookings.md
+07-Payments.md
+08-Reviews.md
+09-Notifications.md
+10-Wallet.md
+11-Coupons.md
+12-Support.md
+13-Admin.md
+
+
+POST /api/v1/auth/register
+
+
+Description
+Register a new customer or provider.
+
+Authentication
+No
+
+
+
+Website Flow
+User Open Website
+        │
+        ▼
+Home Page (Guest)
+        │
+        ▼
+Allow Location
+        │
+        ▼
+Auto Detect Location
+        │
+        ▼
+Show Nearby Services
+        │
+        ▼
+Browse Categories
+        │
+        ▼
+Search Services
+        │
+        ▼
+View Service Details
+        │
+        ▼
+View Provider Details
+        │
+        ▼
+Read Reviews
+        │
+        ▼
+Click "Book Now"
+        │
+        ▼
+──────────────────────────────
+Is User Logged In?
+──────────────────────────────
+        │
+   No   ▼
+Login / OTP Popup
+        │
+        ▼
+OTP Verified
+        │
+        ▼
+Continue Booking
+
+
+ServiceHub Customer Journey
+
+Website/App Open
+        │
+        ▼
+Splash Screen (Mobile Only)
+        │
+        ▼
+Check Internet
+        │
+        ▼
+Detect Current Location
+        │
+        ├──────────────┐
+        │              │
+        ▼              ▼
+Location Allowed   Location Denied
+        │              │
+        ▼              ▼
+Google Place API   Search City/Pincode
+        │              │
+        └──────────────┘
+               │
+               ▼
+Selected Location
+               │
+               ▼
+Load Home Page
+
+
+Recommended Flow
+
+
+
+Open App/Website
+
+↓
+
+Select Location
+
+↓
+
+Discovery API
+
+↓
+
+Show Services Available in that Location
+
+↓
+
+Click Service
+
+↓
+
+Category API
+
+↓
+
+Show Categories / Subcategories
+
+↓
+
+Click Category
+
+↓
+
+Packages API
+
+↓
+
+Show Packages
+
+↓
+
+Click Package
+
+↓
+
+Package Details
+
+↓
+
+Book Now
+
+↓
+
+Login (Only if not logged in)
+
+↓
+
+Booking Flow
+
+
+POST    /api/v1/categories
+GET     /api/v1/categories
+PUT     /api/v1/categories/:id
+DELETE  /api/v1/categories/:id
+
+POST    /api/v1/services
+GET     /api/v1/services
+GET     /api/v1/categories/:categoryId/services
+PUT     /api/v1/services/:id
+DELETE  /api/v1/services/:id
+
+POST    /api/v1/sub-categories
+GET     /api/v1/sub-categories
+GET     /api/v1/services/:serviceId/sub-categories
+PUT     /api/v1/sub-categories/:id
+DELETE  /api/v1/sub-categories/:id
+
+POST    /api/v1/packages
+GET     /api/v1/packages
+GET     /api/v1/sub-categories/:subCategoryId/packages
+PUT     /api/v1/packages/:id
+DELETE  /api/v1/packages/:id

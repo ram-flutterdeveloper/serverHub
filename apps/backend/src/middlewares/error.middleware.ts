@@ -1,13 +1,20 @@
 import { Request, Response, NextFunction } from "express";
+import { AppError } from "../helpers/AppError";
 
 export const errorHandler = (
-  err: any,
+  err: AppError,
   req: Request,
   res: Response,
   next: NextFunction
 ) => {
-  res.status(err.statusCode || 500).json({
+  const statusCode = err.statusCode || 500;
+
+  res.status(statusCode).json({
     success: false,
-    message: err.message,
+    message: err.message || "Internal Server Error",
+    stack:
+      process.env.NODE_ENV === "development"
+        ? err.stack
+        : undefined,
   });
 };

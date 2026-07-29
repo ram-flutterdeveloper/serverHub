@@ -1,26 +1,21 @@
-import { Sequelize } from "sequelize";
-import dotenv from "dotenv";
 
-dotenv.config();
 
-export const sequelize = new Sequelize(
-  process.env.DB_NAME!,
-  process.env.DB_USER!,
-  process.env.DB_PASSWORD!,
-  {
-    host: process.env.DB_HOST,
-    port: Number(process.env.DB_PORT),
-    dialect: "postgres",
-    logging: false,
-  }
-);
+import sequelize from "./sequelize";
+import "./register-models";
+import { initializeModels } from "./init-models";
 
 export const connectDatabase = async () => {
   try {
     await sequelize.authenticate();
-    console.log("✅ PostgreSQL Connected Successfully");
+    initializeModels();
+    console.log("✅ Database Connected");
+
+    await sequelize.sync({
+      force: true,
+    });
+
+    console.log("✅ Database Synced");
   } catch (error) {
-    console.error("❌ Database Connection Failed");
     console.error(error);
     process.exit(1);
   }

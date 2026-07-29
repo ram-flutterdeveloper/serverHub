@@ -1,16 +1,14 @@
-import dotenv from "dotenv";
-import app from "./app.js";
-import { connectDatabase } from "./database/connection.js";
 
-dotenv.config();
-
-const PORT = process.env.PORT || 5000;
-
+import app from "./app";
+import { appConfig } from "./config";
+import { connectDatabase } from "./database";
+import superAdminSeeder from "./database/seeders/super-admin.seed";
 const startServer = async () => {
+  
   await connectDatabase();
-
-  app.listen(PORT, () => {
-    console.log(`🚀 Server running on port ${PORT}`);
+  await superAdminSeeder.run();
+  app.listen(appConfig.port, () => {
+    console.log(`🚀 ${appConfig.appName} running on port ${appConfig.port}`);
   });
 };
 
