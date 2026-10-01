@@ -11,3 +11,4 @@ apps/backend/.env
 !.env.example
 apps/backend/.env
 firebase/
+apps/backend/firebase-service-account.json
