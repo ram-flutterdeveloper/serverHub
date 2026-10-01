@@ -1,4 +1,5 @@
 import { Area, Category, City, Package, Service, SubCategory,ServiceRequirement } from "./index";
+import ServiceCity from "./service-city.model";
 
 
 export const initializeMasterDataAssociations = () => {
@@ -53,4 +54,43 @@ Package.hasMany(ServiceRequirement, {
 ServiceRequirement.belongsTo(Package, {
   foreignKey: "packageId",
   as: "package",
+});
+
+Package.belongsTo(Service, {
+  foreignKey: "serviceId",
+  as: "service",
+});
+
+Service.hasMany(Package, {
+  foreignKey: "serviceId",
+  as: "packages",
+});
+
+// ------------------------------------
+// Service -> ServiceCity
+// ------------------------------------
+
+Service.hasMany(ServiceCity, {
+  foreignKey: "serviceId",
+  as: "serviceCities",
+});
+
+ServiceCity.belongsTo(Service, {
+  foreignKey: "serviceId",
+  as: "service",
+});
+
+
+// ------------------------------------
+// City -> ServiceCity
+// ------------------------------------
+
+City.hasMany(ServiceCity, {
+  foreignKey: "cityId",
+  as: "serviceCities",
+});
+
+ServiceCity.belongsTo(City, {
+  foreignKey: "cityId",
+  as: "city",
 });

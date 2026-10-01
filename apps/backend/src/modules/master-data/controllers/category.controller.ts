@@ -4,15 +4,35 @@ import { asyncHandler } from "../../../helpers/asyncHandler";
 import { ApiResponseHelper } from "../../../helpers/api-response";
 
 class CategoryController {
-    create = asyncHandler(async (req: Request, res: Response) => {
-        const category = await categoryService.create(req.body);
+    // create = asyncHandler(async (req: Request, res: Response) => {
+    //     const category = await categoryService.create(req.body);
 
-        return ApiResponseHelper.success(
-            res,
-            category,
-            "Category created successfully"
-        );
-    });
+    //     return ApiResponseHelper.success(
+    //         res,
+    //         category,
+    //         "Category created successfully"
+    //     );
+    // });
+
+    create = asyncHandler(
+        async (
+            req: Request,
+            res: Response
+        ) => {
+
+            const category =
+                await categoryService.create(
+                    req.body,
+                    req.file
+                );
+
+            return ApiResponseHelper.success(
+                res,
+                category,
+                "Category created successfully"
+            );
+        }
+    );
 
     getAll = asyncHandler(async (_req: Request, res: Response) => {
         const categories = await categoryService.getAll();
@@ -24,20 +44,26 @@ class CategoryController {
         );
     });
 
-    update = asyncHandler(async (req: Request, res: Response) => {
-        const id = req.params.id as string;
+    update = asyncHandler(
+        async (
+            req: Request,
+            res: Response
+        ) => {
 
-        const category = await categoryService.update(
-            id,
-            req.body
-        );
+            const category =
+                await categoryService.update(
+                    req.params.id as string,
+                    req.body,
+                    req.file
+                );
 
-        return ApiResponseHelper.success(
-            res,
-            category,
-            "Category updated successfully"
-        );
-    });
+            return ApiResponseHelper.success(
+                res,
+                category,
+                "Category updated successfully"
+            );
+        }
+    );
 
     delete = asyncHandler(async (req: Request, res: Response) => {
         const id = req.params.id as string;

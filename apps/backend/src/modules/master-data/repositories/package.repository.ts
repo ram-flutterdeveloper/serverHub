@@ -1,4 +1,5 @@
-import { Package, SubCategory } from "../models";
+import { Category, Package, Service, SubCategory } from "../models";
+import ServiceCity from "../models/service-city.model";
 
 class PackageRepository {
 
@@ -27,10 +28,90 @@ class PackageRepository {
         });
     }
 
+    // async findById(id: string) {
+    //     return Package.findByPk(id);
+    // }
+
+    //     async findById(id: string) {
+    //   return Package.findByPk(id, {
+    //     include: [
+    //       {
+    //         model: SubCategory,
+    //         as: "subCategory",
+    //         include: [
+    //           {
+    //             model: Category,
+    //             as: "category",
+    //           },
+    //         ],
+    //       },
+    //     ],
+    //   });
+    // }
+
     async findById(id: string) {
-        return Package.findByPk(id);
+        return Package.findByPk(id, {
+            include: [
+                // Direct Service
+                {
+                    model: Service,
+                    as: "service",
+                    required: true,
+                    include: [
+                        {
+                            model: Category,
+                            as: "category",
+                            required: true,
+                        },
+                    ],
+                },
+
+                // Optional SubCategory
+                {
+                    model: SubCategory,
+                    as: "subCategory",
+                    required: false,
+                    include: [
+                        {
+                            model: Service,
+                            as: "service",
+                            required: false,
+                            include: [
+                                {
+                                    model: Category,
+                                    as: "category",
+                                    required: false,
+                                },
+                            ],
+                        },
+                    ],
+                },
+            ],
+        });
     }
 
+    // async findById(id: string) {
+    //     return Package.findByPk(id, {
+    //         include: [
+    //             {
+    //                 model: SubCategory,
+    //                 as: "subCategory",
+    //                 include: [
+    //                     {
+    //                         model: Service,
+    //                         as: "service",
+    //                         include: [
+    //                             {
+    //                                 model: Category,
+    //                                 as: "category",
+    //                             },
+    //                         ],
+    //                     },
+    //                 ],
+    //             },
+    //         ],
+    //     });
+    // }
     async findByName(name: string) {
         return Package.findOne({
             where: {
@@ -52,15 +133,74 @@ class PackageRepository {
             where: { id },
         });
     }
-    async findPopular() {
+
+    async findPopular(cityId: string) {
         return Package.findAll({
             where: {
                 status: "ACTIVE",
                 isFeatured: true,
             },
+
+            include: [
+                {
+                    model: Service,
+                    as: "service",
+
+                    where: {
+                        status: "ACTIVE",
+                    },
+
+                    required: true,
+
+                    include: [
+                        {
+                            model: ServiceCity,
+                            as: "serviceCities",
+
+                            where: {
+                                cityId,
+                                status: "ACTIVE",
+                            },
+
+                            required: true,
+                        },
+                    ],
+                },
+            ],
+
             limit: 10,
-            order: [["sortOrder", "ASC"]],
+
+            order: [
+                ["sortOrder", "ASC"],
+            ],
         });
+    }
+
+    async findByService(
+        serviceId: string
+    ) {
+
+        return Package.findAll({
+
+            where: {
+                serviceId,
+                status: "ACTIVE",
+            },
+
+            include: [
+                {
+                    model: SubCategory,
+                    as: "subCategory",
+                    required: false,
+                },
+            ],
+
+            order: [
+                ["sortOrder", "ASC"],
+            ],
+
+        });
+
     }
 }
 

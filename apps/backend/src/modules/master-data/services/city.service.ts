@@ -19,10 +19,41 @@ class CityService {
     return cityRepository.findAll();
   }
 
-  async update(id: string, body: any) {
-    return cityRepository.update(id, body);
-  }
+  async update(
+    id: string,
+    body: any
+  ) {
 
+    const city =
+      await cityRepository.findById(id);
+
+    if (!city) {
+      throw new AppError(
+        "City not found",
+        404
+      );
+    }
+
+    const updateData: any = {
+      ...body,
+    };
+
+    if (body.name) {
+      updateData.name =
+        body.name.trim();
+
+      updateData.slug =
+        body.name
+          .trim()
+          .toLowerCase()
+          .replace(/\s+/g, "-");
+    }
+
+    return cityRepository.update(
+      id,
+      updateData
+    );
+  }
   async delete(id: string) {
     await cityRepository.delete(id);
   }

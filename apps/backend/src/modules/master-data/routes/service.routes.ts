@@ -5,12 +5,16 @@ import serviceController from "../controllers/service.controller";
 import { authMiddleware } from "../../../middlewares/auth.middleware";
 
 import { createServiceValidator } from "../validators/service.validator";
+import { uploadAndCompressImage } from "../../../middlewares/upload.middleware";
 
 const router = Router();
 
 router.post(
   "/",
   authMiddleware,
+  uploadAndCompressImage(
+    "services"
+  ),
   createServiceValidator,
   serviceController.create
 );
@@ -28,6 +32,9 @@ router.get(
 router.put(
   "/:id",
   authMiddleware,
+  uploadAndCompressImage(
+    "services"
+  ),
   createServiceValidator,
   serviceController.update
 );

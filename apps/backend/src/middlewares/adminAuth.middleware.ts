@@ -19,6 +19,5 @@ export const adminMiddleware = (
       403
     );
   }
-
-  next();
+next();
 };

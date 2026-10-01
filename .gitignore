@@ -10,3 +10,4 @@ apps/backend/.env
 .env.*
 !.env.example
 apps/backend/.env
+firebase/

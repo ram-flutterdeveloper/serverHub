@@ -19,20 +19,47 @@ class ProfileController {
     );
   });
 
-  updateProfile = asyncHandler(async (req: Request, res: Response) => {
-    const userId = (req as any).user.userId;
+  // updateProfile = asyncHandler(async (req: Request, res: Response) => {
+  //   const userId = (req as any).user.userId;
 
-    const profile = await updateProfileService.execute(
-      userId,
-      req.body
-    );
+  //   const profile = await updateProfileService.execute(
+  //     userId,
+  //     req.body
+  //   );
+
+  //   return ApiResponseHelper.success(
+  //     res,
+  //     profile,
+  //     "Profile updated successfully"
+  //   );
+  // });
+
+  updateProfile = asyncHandler(
+  async (req: Request, res: Response) => {
+
+    const userId =
+      (req as any).user.userId;
+
+    const profile =
+      await updateProfileService.execute(
+        userId,
+        {
+          ...req.body,
+
+          profileImage:
+            req.file?.filename
+              ? `/uploads/profile/${req.file.filename}`
+              : undefined,
+        }
+      );
 
     return ApiResponseHelper.success(
       res,
       profile,
       "Profile updated successfully"
     );
-  });
+  }
+);
 }
 
 export default new ProfileController();

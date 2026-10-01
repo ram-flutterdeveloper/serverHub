@@ -4,7 +4,7 @@ import cityController from "../controllers/city.controller";
 
 import { authMiddleware } from "../../../middlewares/auth.middleware";
 
-import { createCityValidator } from "../validators/city.validator";
+import { createCityValidator, updateCityValidator } from "../validators/city.validator";
 
 const router = Router();
 
@@ -23,7 +23,7 @@ router.get(
 router.put(
   "/:id",
   authMiddleware,
-  createCityValidator,
+  updateCityValidator,
   cityController.update
 );
 

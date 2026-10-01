@@ -10,9 +10,12 @@ export const connectDatabase = async () => {
     initializeModels();
     console.log("✅ Database Connected");
 
-    await sequelize.sync({
-      force: true,
-    });
+    // await sequelize.sync({
+    //   // force: true,
+    //   alter: false,
+    //   force: false,
+    // });
+    await sequelize.sync();
 
     console.log("✅ Database Synced");
   } catch (error) {

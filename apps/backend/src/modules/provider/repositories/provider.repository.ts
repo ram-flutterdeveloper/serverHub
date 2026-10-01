@@ -1,11 +1,7 @@
 
 import {
     Provider,
-    ProviderLocation,
-    ProviderService,
-    ProviderDocument,
-    ProviderBankAccount,
-    ProviderWorkingHour,
+   
 } from "../models";
 
 class ProviderRepository {

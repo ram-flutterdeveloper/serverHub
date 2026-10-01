@@ -4,18 +4,60 @@ import { asyncHandler } from "../../../helpers/asyncHandler";
 import { ApiResponseHelper } from "../../../helpers/api-response";
 
 class PackageController {
-  create = asyncHandler(async (req: Request, res: Response) => {
-    const result = await packageService.create(req.body);
+  // create = asyncHandler(async (req: Request, res: Response) => {
+  //   const result = await packageService.create(req.body);
+
+  //   return ApiResponseHelper.success(
+  //     res,
+  //     result,
+  //     "Package created successfully"
+  //   );
+  // });
+
+
+
+
+  create = asyncHandler(
+    async (
+      req: Request,
+      res: Response
+    ) => {
+
+      const body = {
+        ...req.body,
+
+        image: req.file
+          ? `/uploads/packages/${req.file.filename}`
+          : null,
+      };
+
+
+      const packageData =
+        await packageService.create(
+          body
+        );
+
+
+      return ApiResponseHelper.success(
+        res,
+        packageData,
+        "Package created successfully"
+      );
+    }
+  );
+  getAll = asyncHandler(async (_req: Request, res: Response) => {
+    const result = await packageService.getAll();
 
     return ApiResponseHelper.success(
       res,
       result,
-      "Package created successfully"
+      "Packages fetched successfully"
     );
   });
-
-  getAll = asyncHandler(async (_req: Request, res: Response) => {
-    const result = await packageService.getAll();
+   getByService = asyncHandler(async (req: Request, res: Response) => {
+    const result = await packageService.getByService(
+      req.params.serviceId as string
+    );
 
     return ApiResponseHelper.success(
       res,
@@ -36,18 +78,35 @@ class PackageController {
     );
   });
 
-  update = asyncHandler(async (req: Request, res: Response) => {
-    const result = await packageService.update(
-      req.params.id as string,
-      req.body
-    );
+  update = asyncHandler(
+    async (
+      req: Request,
+      res: Response
+    ) => {
 
-    return ApiResponseHelper.success(
-      res,
-      result,
-      "Package updated successfully"
-    );
-  });
+      const body = {
+        ...req.body,
+        ...(req.file && {
+          image:
+            `/uploads/packages/${req.file.filename}`,
+        }),
+      };
+
+
+      const packageData =
+        await packageService.update(
+          req.params.id as string,
+          body
+        );
+
+
+      return ApiResponseHelper.success(
+        res,
+        packageData,
+        "Package updated successfully"
+      );
+    }
+  );
 
   delete = asyncHandler(async (req: Request, res: Response) => {
     await packageService.delete(req.params.id as string);

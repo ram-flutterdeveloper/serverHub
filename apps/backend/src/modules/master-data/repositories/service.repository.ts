@@ -1,4 +1,5 @@
 import { Service, Category } from "../models";
+import ServiceCity from "../models/service-city.model";
 
 class ServiceRepository {
   async create(data: Partial<Service>) {
@@ -49,16 +50,57 @@ class ServiceRepository {
       where: { id },
     });
   }
-  async findFeatured() {
-    return Service.findAll({
-      where: {
-        status: "ACTIVE",
-        isFeatured: true,
+  // async findFeatured() {
+  //   return Service.findAll({
+  //     where: {
+  //       status: "ACTIVE",
+  //       isFeatured: true,
+  //     },
+  //     limit: 10,
+  //     order: [["sortOrder", "ASC"]],
+  //   });
+  // }
+
+  async findFeatured(cityId: string) {
+  return Service.findAll({
+    where: {
+      status: "ACTIVE",
+      isFeatured: true,
+    },
+
+    include: [
+      {
+        model: ServiceCity,
+        as: "serviceCities",
+
+        where: {
+          cityId,
+          status: "ACTIVE",
+        },
+
+        required: true,
       },
-      limit: 10,
-      order: [["sortOrder", "ASC"]],
-    });
-  }
+
+      {
+        model: Category,
+        as: "category",
+        where: {
+          status: "ACTIVE",
+        },
+
+        required: true,
+      },
+    ],
+
+    limit: 10,
+
+    order: [
+      ["sortOrder", "ASC"],
+    ],
+  });
+}
+
+
 }
 
 export default new ServiceRepository();

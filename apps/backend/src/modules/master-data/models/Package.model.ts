@@ -13,7 +13,7 @@ class Package extends BaseModel<
 > {
   declare id: string;
 
-  declare subCategoryId: string;
+  declare subCategoryId: string | null;
 
   declare name: string;
 
@@ -34,6 +34,7 @@ class Package extends BaseModel<
   declare isFeatured: boolean;
 
   declare status: "ACTIVE" | "INACTIVE";
+  declare serviceId: string;
 }
 
 Package.init(
@@ -44,15 +45,28 @@ Package.init(
       primaryKey: true,
     },
 
+    // subCategoryId: {
+    //   type: DataTypes.UUID,
+    //   allowNull: false,
+    //   references: {
+    //     model: "sub_categories",
+    //     key: "id",
+    //   },
+    //   onUpdate: "CASCADE",
+    //   onDelete: "RESTRICT",
+    // },
+
     subCategoryId: {
       type: DataTypes.UUID,
-      allowNull: false,
+      allowNull: true,
+
       references: {
         model: "sub_categories",
         key: "id",
       },
+
       onUpdate: "CASCADE",
-      onDelete: "RESTRICT",
+      onDelete: "SET NULL",
     },
 
     name: {
@@ -102,6 +116,14 @@ Package.init(
       type: DataTypes.ENUM("ACTIVE", "INACTIVE"),
       defaultValue: "ACTIVE",
     },
+    serviceId: {
+      type: DataTypes.UUID,
+      allowNull: false,
+      references: {
+        model: "services",
+        key: "id",
+      },
+    }
   },
   {
     sequelize,
@@ -109,6 +131,7 @@ Package.init(
     timestamps: true,
     paranoid: true,
   }
+
 );
 
 export default Package;

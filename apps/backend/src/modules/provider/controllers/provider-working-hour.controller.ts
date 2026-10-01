@@ -61,6 +61,27 @@ class ProviderWorkingHourController {
 
     });
 
+    update = asyncHandler(
+    async (
+        req: AuthRequest,
+        res: Response
+    ) => {
+
+        const result =
+            await providerWorkingHourService.update(
+                req.user!.userId,
+                req.params.id as string,
+                req.body
+            );
+
+        return ApiResponseHelper.success(
+            res,
+            result,
+            "Working hours updated successfully"
+        );
+    }
+);
+
 }
 
 export default new ProviderWorkingHourController();

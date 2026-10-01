@@ -1,0 +1,1 @@
+export { default as providerRoutes } from "./routes/provider.routes";

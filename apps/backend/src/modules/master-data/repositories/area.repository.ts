@@ -26,6 +26,8 @@ class AreaRepository {
     });
   }
 
+  
+
   async findById(id: string) {
     return Area.findByPk(id);
   }

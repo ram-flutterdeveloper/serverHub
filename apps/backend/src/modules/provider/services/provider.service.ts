@@ -1,24 +1,73 @@
 import providerRepository from "../repositories/provider.repository";
 import { AppError } from "../../../helpers/AppError";
+import { UserRole } from "../../../constants/user-role";
+import authRepository from "../../auth/repositories/auth.repository";
 
 class ProviderService {
 
-    async register(userId: string, body: any) {
+    //    async register(userId: string, body: any) {
 
-        const exists = await providerRepository.findByUserId(userId);
+    //     const exists = await providerRepository.findByUserId(userId);
+
+    //     if (exists) {
+    //         throw new AppError(
+    //             "Provider profile already exists",
+    //             400
+    //         );
+    //     }
+
+    //     const provider = await providerRepository.create({
+    //         userId,
+    //         ...body,
+    //     });
+
+    //     await authRepository.updateUser(userId, {
+    //         role: UserRole.PROVIDER,
+    //     });
+
+    //     return provider;
+    // }
+
+
+
+    async register(
+        userId: string,
+        body: any
+    ) {
+
+        const exists =
+            await providerRepository.findByUserId(
+                userId
+            );
 
         if (exists) {
+
             throw new AppError(
                 "Provider profile already exists",
                 400
             );
+
         }
 
-        return providerRepository.create({
-            userId,
-            ...body,
-        });
+        const provider =
+            await providerRepository.create({
 
+                userId,
+
+                ...body,
+
+            });
+
+        await authRepository.updateUser(
+            userId,
+            {
+                role: UserRole.PROVIDER,
+
+                providerSignupStep: 1,
+            }
+        );
+
+        return provider;
     }
 
     async getMyProfile(userId: string) {

@@ -6,6 +6,7 @@ import {
 
 import sequelize from "../../../database/sequelize";
 import { BaseModel } from "../../../database/models/BaseModel";
+import User from "../../auth/models/User.model";
 
 class Provider extends BaseModel<
   InferAttributes<Provider>,
@@ -111,5 +112,6 @@ Provider.init(
     paranoid: true,
   }
 );
+
 
 export default Provider;

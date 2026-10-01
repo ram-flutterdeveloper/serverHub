@@ -1,10 +1,8 @@
 class LogoutService {
 
-    async execute(){
-
-        return true;
-
-    }
+  async execute() {
+    return true;
+  }
 
 }
 

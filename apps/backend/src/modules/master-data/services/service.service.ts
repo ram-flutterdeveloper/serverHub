@@ -4,22 +4,93 @@ import { AppError } from "../../../helpers/AppError";
 
 class ServiceService {
   async create(body: any) {
-    const category = await categoryRepository.findById(body.categoryId);
+
+    const category =
+      await categoryRepository.findById(
+        body.categoryId
+      );
+
 
     if (!category) {
-      throw new AppError("Category not found", 404);
+
+      throw new AppError(
+        "Category not found",
+        404
+      );
+
     }
 
-    const exists = await serviceRepository.findByName(body.name);
+
+    const exists =
+      await serviceRepository.findByName(
+        body.name
+      );
+
 
     if (exists) {
-      throw new AppError("Service already exists", 400);
+
+      throw new AppError(
+        "Service already exists",
+        400
+      );
+
     }
 
+
     return serviceRepository.create({
+
       ...body,
-      slug: body.name.toLowerCase().replace(/\s+/g, "-"),
+
+      slug:
+        body.name
+          .trim()
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/g, "-")
+          .replace(/^-+|-+$/g, ""),
+
     });
+
+  }
+
+
+  async update(
+    id: string,
+    body: any
+  ) {
+
+    const service =
+      await serviceRepository.findById(
+        id
+      );
+
+
+    if (!service) {
+
+      throw new AppError(
+        "Service not found",
+        404
+      );
+
+    }
+
+
+    return serviceRepository.update(
+      id,
+      {
+        ...body,
+
+        ...(body.name && {
+          slug:
+            body.name
+              .trim()
+              .toLowerCase()
+              .replace(/[^a-z0-9]+/g, "-")
+              .replace(/^-+|-+$/g, ""),
+        }),
+
+      }
+    );
+
   }
 
   async getAll() {
@@ -30,9 +101,9 @@ class ServiceService {
     return serviceRepository.findByCategory(categoryId);
   }
 
-  async update(id: string, body: any) {
-    return serviceRepository.update(id, body);
-  }
+  // async update(id: string, body: any) {
+  //   return serviceRepository.update(id, body);
+  // }
 
   async delete(id: string) {
     await serviceRepository.delete(id);

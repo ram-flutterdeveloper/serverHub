@@ -7,6 +7,8 @@ import {
 import sequelize from "../../../database/sequelize";
 import { BaseModel } from "../../../database/models/BaseModel";
 import { UserRole } from "../../../constants/user-role";
+import Provider from "../../provider/models/Provider.model";
+import { UserStatus } from "../constants/user-status";
 
 class User extends BaseModel<
   InferAttributes<User>,
@@ -43,6 +45,8 @@ class User extends BaseModel<
   declare authProvider: "OTP" | "GOOGLE";
 
   declare isEmailVerified: boolean;
+
+  declare providerSignupStep: number;
 }
 
 User.init(
@@ -100,8 +104,11 @@ User.init(
     },
 
     status: {
-      type: DataTypes.ENUM("ACTIVE", "BLOCKED"),
-      defaultValue: "ACTIVE",
+      type: DataTypes.ENUM(
+        UserStatus.ACTIVE,
+        UserStatus.BLOCKED
+      ),
+      defaultValue: UserStatus.ACTIVE,
     },
 
     role: {
@@ -126,6 +133,12 @@ User.init(
     isEmailVerified: {
       type: DataTypes.BOOLEAN,
       defaultValue: false,
+    },
+
+    providerSignupStep: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+      defaultValue: 0,
     },
   },
 

@@ -26,10 +26,17 @@ class ProviderWorkingHourRepository {
         return ProviderWorkingHour.findByPk(id);
     }
 
-    async update(id: string, data: Partial<ProviderWorkingHour>) {
-        await ProviderWorkingHour.update(data, {
-            where: { id },
-        });
+    async update(
+        id: string,
+        data: Partial<ProviderWorkingHour>
+    ) {
+
+        await ProviderWorkingHour.update(
+            data,
+            {
+                where: { id },
+            }
+        );
 
         return this.findById(id);
     }
@@ -39,6 +46,29 @@ class ProviderWorkingHourRepository {
             where: { id },
         });
     }
+
+
+    async getAvailableSlots(serviceId: string) {
+        return [
+            {
+                startTime: "09:00",
+                endTime: "11:00",
+            },
+            {
+                startTime: "11:00",
+                endTime: "01:00",
+            },
+            {
+                startTime: "02:00",
+                endTime: "04:00",
+            },
+            {
+                startTime: "04:00",
+                endTime: "06:00",
+            },
+        ];
+    }
+
 }
 
 export default new ProviderWorkingHourRepository();

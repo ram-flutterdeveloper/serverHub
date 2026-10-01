@@ -26,18 +26,50 @@ class CityController {
     );
   });
 
-  update = asyncHandler(async (req: Request, res: Response) => {
-    const city = await cityService.update(
-      req.params.id as string,
-      req.body
-    );
+  // update = asyncHandler(async (req: Request, res: Response) => {
+  //   const city = await cityService.update(
+  //     req.params.id as string,
+  //     req.body
+  //   );
 
-    return ApiResponseHelper.success(
-      res,
-      city,
-      "City updated successfully"
-    );
-  });
+  //   return ApiResponseHelper.success(
+  //     res,
+  //     city,
+  //     "City updated successfully"
+  //   );
+  // });
+
+  update = asyncHandler(
+    async (
+      req: Request,
+      res: Response
+    ) => {
+
+      const { id } = req.params;
+
+      if (
+        typeof id !== "string" ||
+        !id.trim()
+      ) {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid city id",
+        });
+      }
+
+      const city =
+        await cityService.update(
+          id,
+          req.body
+        );
+
+      return ApiResponseHelper.success(
+        res,
+        city,
+        "City updated successfully"
+      );
+    }
+  );
 
   delete = asyncHandler(async (req: Request, res: Response) => {
     await cityService.delete(req.params.id as string);

@@ -6,6 +6,8 @@ import verifyOtpService from "../services/verify-otp.service";
 import refreshTokenService from "../services/refresh-token.service";
 
 import googleLoginService from "../services/google-login.service";
+import deleteAccountService from "../services/delete-account.service";
+import logoutService from "../services/logout.service";
 
 
 class AuthController {
@@ -70,6 +72,47 @@ class AuthController {
       res,
       data,
       "Login successful"
+    );
+  }
+);
+
+
+// ==========================================
+// LOGOUT
+// ==========================================
+
+logout = asyncHandler(
+  async (req: Request, res: Response) => {
+
+    await logoutService.execute();
+
+    return ApiResponseHelper.success(
+      res,
+      null,
+      "Logout successful"
+    );
+  }
+);
+
+
+// ==========================================
+// DELETE ACCOUNT
+// ==========================================
+
+deleteAccount = asyncHandler(
+  async (req: Request, res: Response) => {
+
+    const userId =
+      (req as any).user.userId;
+
+    await deleteAccountService.execute(
+      userId
+    );
+
+    return ApiResponseHelper.success(
+      res,
+      null,
+      "Account deleted successfully"
     );
   }
 );

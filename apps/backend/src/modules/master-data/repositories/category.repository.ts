@@ -1,5 +1,6 @@
 import { Service } from "../models";
 import Category from "../models/Category.model";
+import ServiceCity from "../models/service-city.model";
 
 
 class CategoryRepository {
@@ -36,24 +37,69 @@ class CategoryRepository {
       where: { id },
     });
   }
-  async findAllWithServices() {
+//   async findAllWithServices() {
+//   return Category.findAll({
+//     where: {
+//       status: "ACTIVE",
+//     },
+//     include: [
+//       {
+//         model: Service,
+//         as: "services",
+//         where: {
+//           status: "ACTIVE",
+//         },
+//         required: false,
+//       },
+//     ],
+//     order: [
+//       ["sortOrder", "ASC"],
+//       [{ model: Service, as: "services" }, "sortOrder", "ASC"],
+//     ],
+//   });
+// }
+
+
+async findAllWithServices(cityId: string) {
   return Category.findAll({
     where: {
       status: "ACTIVE",
     },
+
     include: [
       {
         model: Service,
         as: "services",
+
         where: {
           status: "ACTIVE",
         },
-        required: false,
+
+        required: true,
+
+        include: [
+          {
+            model: ServiceCity,
+            as: "serviceCities",
+
+            where: {
+              cityId,
+              status: "ACTIVE",
+            },
+
+            required: true,
+          },
+        ],
       },
     ],
+
     order: [
       ["sortOrder", "ASC"],
-      [{ model: Service, as: "services" }, "sortOrder", "ASC"],
+      [
+        { model: Service, as: "services" },
+        "sortOrder",
+        "ASC",
+      ],
     ],
   });
 }

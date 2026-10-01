@@ -6,15 +6,80 @@ import { asyncHandler } from "../../../helpers/asyncHandler";
 import { ApiResponseHelper } from "../../../helpers/api-response";
 
 class ServiceController {
-    create = asyncHandler(async (req: Request, res: Response) => {
-        const service = await serviceService.create(req.body);
+  create = asyncHandler(
+    async (
+      req: Request,
+      res: Response
+    ) => {
 
-        return ApiResponseHelper.success(
-            res,
-            service,
-            "Service created successfully"
+      // ------------------------------------
+      // Prepare body
+      // ------------------------------------
+
+      const body = {
+        ...req.body,
+
+        image: req.file
+          ? `/uploads/services/${req.file.filename}`
+          : null,
+      };
+
+
+      console.log("SERVICE BODY:", body);
+
+      console.log(
+        "SERVICE FILE:",
+        req.file
+      );
+
+
+      const service =
+        await serviceService.create(
+          body
         );
-    });
+
+
+      return ApiResponseHelper.success(
+        res,
+        service,
+        "Service created successfully"
+      );
+    }
+  );
+
+
+  update = asyncHandler(
+    async (
+      req: Request,
+      res: Response
+    ) => {
+
+      const body = {
+        ...req.body,
+
+        // Only replace image when
+        // a new image is uploaded
+        ...(req.file && {
+          image:
+            `/uploads/services/${req.file.filename}`,
+        }),
+      };
+
+
+      const service =
+        await serviceService.update(
+          req.params.id as string,
+          body
+        );
+
+
+      return ApiResponseHelper.success(
+        res,
+        service,
+        "Service updated successfully"
+      );
+    }
+  );
 
     getAll = asyncHandler(async (req: Request, res: Response) => {
         const services = await serviceService.getAll();
@@ -38,18 +103,18 @@ class ServiceController {
         );
     });
 
-    update = asyncHandler(async (req: Request, res: Response) => {
-        const service = await serviceService.update(
-            req.params.id as string,
-            req.body
-        );
+    // update = asyncHandler(async (req: Request, res: Response) => {
+    //     const service = await serviceService.update(
+    //         req.params.id as string,
+    //         req.body
+    //     );
 
-        return ApiResponseHelper.success(
-            res,
-            service,
-            "Service updated successfully"
-        );
-    });
+    //     return ApiResponseHelper.success(
+    //         res,
+    //         service,
+    //         "Service updated successfully"
+    //     );
+    // });
 
     delete = asyncHandler(async (req: Request, res: Response) => {
         await serviceService.delete(req.params.id as string);

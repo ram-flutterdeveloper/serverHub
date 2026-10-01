@@ -1,3 +1,4 @@
+import Provider from "../../provider/models/Provider.model";
 import { OtpVerification, User } from "../models";
 
 class AuthRepository {
@@ -11,12 +12,24 @@ class AuthRepository {
   async createUser(data: Partial<User>) {
     return User.create(data as any);
   }
+  async findProviderByUserId(userId: string) {
+    return Provider.findOne({
+      where: {
+        userId,
+      },
+    });
+  }
 
-  // async updateUser(id: string, data: Partial<User>) {
-  //   return User.update(data, {
-  //     where: { id },
-  //   });
-  // }
+
+  async findActiveAdmins() {
+    return User.findAll({
+      where: {
+        role: "ADMIN",
+        status: "ACTIVE",
+      },
+      attributes: ["id"],
+    });
+  }
   async updateUser(id: string, data: Partial<User>) {
     await User.update(data, {
       where: { id },

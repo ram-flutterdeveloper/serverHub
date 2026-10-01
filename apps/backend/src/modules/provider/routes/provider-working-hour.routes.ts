@@ -21,11 +21,11 @@ router.get(
     providerWorkingHourController.getMyWorkingHours
 );
 
-router.put(
+router.patch(
     "/:id",
     authMiddleware,
     providerWorkingHourValidator,
-    providerWorkingHourController.save
+    providerWorkingHourController.update
 );
 
 router.delete(

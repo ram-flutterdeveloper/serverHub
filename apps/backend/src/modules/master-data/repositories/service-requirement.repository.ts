@@ -5,9 +5,18 @@ class ServiceRequirementRepository {
     return ServiceRequirement.create(data as any);
   }
 
+  // async findByPackage(packageId: string) {
+  //   return ServiceRequirement.findAll({
+  //     where: { packageId },
+  //     order: [["sortOrder", "ASC"]],
+  //   });
+  // }
   async findByPackage(packageId: string) {
     return ServiceRequirement.findAll({
-      where: { packageId },
+      where: {
+        packageId,
+        status: "ACTIVE",
+      },
       order: [["sortOrder", "ASC"]],
     });
   }
@@ -32,6 +41,16 @@ class ServiceRequirementRepository {
       where: { id },
     });
   }
+
+  // async getByService(serviceId: string) {
+  //   return ServiceRequirement.findAll({
+  //     where: {
+  //       serviceId,
+  //       status: "ACTIVE",
+  //     },
+  //     order: [["sortOrder", "ASC"]],
+  //   });
+  // }
 }
 
 export default new ServiceRequirementRepository();
