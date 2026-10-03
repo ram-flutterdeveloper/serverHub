@@ -1,381 +1,256 @@
 'use client';
 
-import React, { useState, useMemo } from 'react';
+import React, { useState } from 'react';
 import {
+  Alert,
   Box,
-  Grid,
+  Button,
   Card,
   CardContent,
-  Typography,
-  Button,
-  IconButton,
-  Divider,
-  List,
-  ListItem,
-  ListItemIcon,
-  ListItemText,
-  Snackbar,
-  Alert,
   Chip,
+  Divider,
+  Grid,
+  Skeleton,
   Stack,
+  Typography,
 } from '@mui/material';
-import {
-  ArrowBack,
-  Edit,
-  Block,
-  Delete,
-  VerifiedUser,
-  Email,
-  Phone,
-  LocationOn,
-  CalendarToday,
-  Login,
-  History,
-  BookOnline,
-  AccountBalance,
-} from '@mui/icons-material';
-import { useRouter, useParams } from 'next/navigation';
-import { useForm, Control } from 'react-hook-form';
-import { zodResolver } from '@hookform/resolvers/zod';
-import dayjs from 'dayjs';
+import { ArrowBack, Block, CheckCircle, DeleteOutline, Refresh, VerifiedUser } from '@mui/icons-material';
+import { useParams, useRouter } from 'next/navigation';
 
 import AdminLayout from '@/components/layout/AdminLayout';
 import PageHeader from '@/components/common/PageHeader';
 import StatusChip from '@/components/common/StatusChip';
 import UserAvatar from '@/components/common/UserAvatar';
-import FormDialog from '@/components/dialogs/FormDialog';
 import ConfirmDialog from '@/components/dialogs/ConfirmDialog';
-import FormTextField from '@/components/forms/FormTextField';
-import FormSelect from '@/components/forms/FormSelect';
-import { dummyUsers } from '@/data/users';
-import { User, UserRole, UserStatus } from '@/types';
-import { userSchema, UserFormData } from '@/utils/validations';
-import { formatDate, formatCurrency, formatRelativeTime, formatDateTime } from '@/utils';
+import { usersService } from '@/services/users.service';
+import { useApiData } from '@/hooks/useApiData';
+import { useToast } from '@/context/ToastContext';
+import { UserStatus } from '@/types/api';
+import { formatDateTime, formatPhone } from '@/utils';
+import { resolveMediaUrl } from '@/utils/media';
 
-const roleOptions = Object.values(UserRole).map((r) => ({
-  value: r,
-  label: r.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()),
-}));
+type UserAction = 'block' | 'unblock' | 'verify' | 'delete';
+
+function DetailRow({ label, value }: { label: string; value: React.ReactNode }) {
+  return (
+    <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 2, py: 1 }}>
+      <Typography variant="body2" color="text.secondary">
+        {label}
+      </Typography>
+      <Typography variant="body2" fontWeight={500} textAlign="right">
+        {value}
+      </Typography>
+    </Box>
+  );
+}
 
 export default function UserDetailPage() {
   const router = useRouter();
-  const params = useParams();
-  const userId = params.id as string;
+  const params = useParams<{ id: string }>();
+  const userId = params.id;
+  const { showToast } = useToast();
 
-  const [users, setUsers] = useState<User[]>(dummyUsers);
-  const [editDialogOpen, setEditDialogOpen] = useState(false);
-  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
-  const [suspendDialogOpen, setSuspendDialogOpen] = useState(false);
-  const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' as 'success' | 'error' });
+  const [pending, setPending] = useState<UserAction | null>(null);
+  const [actionLoading, setActionLoading] = useState(false);
 
-  const user = useMemo(() => users.find((u) => u.id === userId), [users, userId]);
+  const user = useApiData((signal) => usersService.getById(userId, signal), [userId]);
 
-  const { control, handleSubmit, reset } = useForm<UserFormData>({
-    resolver: zodResolver(userSchema),
-    defaultValues: { firstName: '', lastName: '', email: '', phone: '', role: '' },
-  });
-
-  const handleEdit = () => {
-    if (user) {
-      reset({
-        firstName: user.firstName,
-        lastName: user.lastName,
-        email: user.email,
-        phone: user.phone,
-        role: user.role,
-      });
-      setEditDialogOpen(true);
+  const runAction = async () => {
+    if (!pending || !user.data) return;
+    setActionLoading(true);
+    try {
+      if (pending === 'block') await usersService.block(user.data.id);
+      if (pending === 'unblock') await usersService.unblock(user.data.id);
+      if (pending === 'verify') await usersService.verify(user.data.id);
+      if (pending === 'delete') await usersService.remove(user.data.id);
+      showToast('Customer updated successfully', 'success');
+      setPending(null);
+      user.refetch();
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : 'Action failed', 'error');
+    } finally {
+      setActionLoading(false);
     }
   };
 
-  const handleFormSubmit = (data: UserFormData) => {
-    setUsers((prev) =>
-      prev.map((u) => (u.id === userId ? { ...u, ...data, role: data.role as UserRole } : u))
-    );
-    setEditDialogOpen(false);
-    setSnackbar({ open: true, message: 'User updated successfully', severity: 'success' });
+  const confirmMessage = () => {
+    if (!pending || !user.data) return '';
+    const name = `${user.data.firstName ?? ''} ${user.data.lastName ?? ''}`.trim() || user.data.mobile;
+    switch (pending) {
+      case 'block':
+        return `Block ${name}? They will not be able to sign in.`;
+      case 'unblock':
+        return `Unblock ${name}?`;
+      case 'verify':
+        return `Mark ${name} as verified?`;
+      case 'delete':
+        return `Delete ${name}? The backend performs a soft delete.`;
+      default:
+        return '';
+    }
   };
 
-  const handleSuspend = () => {
-    setUsers((prev) =>
-      prev.map((u) =>
-        u.id === userId
-          ? { ...u, status: u.status === UserStatus.SUSPENDED ? UserStatus.ACTIVE : UserStatus.SUSPENDED }
-          : u
-      )
-    );
-    setSuspendDialogOpen(false);
-    setSnackbar({ open: true, message: 'User status updated', severity: 'success' });
-  };
-
-  const handleDelete = () => {
-    setDeleteDialogOpen(false);
-    setSnackbar({ open: true, message: 'User deleted successfully', severity: 'success' });
-    router.push('/users');
-  };
-
-  if (!user) {
-    return (
-      <AdminLayout>
-        <Typography variant="h6" color="text.secondary" sx={{ py: 8, textAlign: 'center' }}>
-          User not found
-        </Typography>
-      </AdminLayout>
-    );
-  }
-
-  const isSuspended = user.status === UserStatus.SUSPENDED;
-
-  const activityItems = [
-    { icon: <Login />, text: 'Last login', value: formatDateTime(user.lastLoginAt) },
-    { icon: <BookOnline />, text: 'Total bookings', value: user.totalBookings.toString() },
-    { icon: <AccountBalance />, text: 'Total spent', value: formatCurrency(user.totalSpent) },
-    { icon: <CalendarToday />, text: 'Member since', value: formatDate(user.createdAt) },
-  ];
+  const isBlocked = user.data?.status === UserStatus.BLOCKED;
+  const isDeleted = user.data?.status === UserStatus.DELETED;
 
   return (
     <AdminLayout>
       <PageHeader
-        title={`${user.firstName} ${user.lastName}`}
+        title="Customer details"
         breadcrumbs={[
-          { label: 'Home', path: '/dashboard' },
-          { label: 'Users', path: '/users' },
-          { label: `${user.firstName} ${user.lastName}` },
+          { label: 'Dashboard', path: '/dashboard' },
+          { label: 'Customers', path: '/users' },
+          { label: 'Details' },
         ]}
         action={
-          <Button variant="outlined" startIcon={<ArrowBack />} onClick={() => router.push('/users')}>
-            Back to Users
-          </Button>
+          <Stack direction="row" spacing={1}>
+            <Button startIcon={<ArrowBack />} onClick={() => router.push('/users')}>
+              Back
+            </Button>
+            <Button startIcon={<Refresh />} onClick={user.refetch}>
+              Refresh
+            </Button>
+          </Stack>
         }
       />
 
-      <Grid container spacing={3}>
-        <Grid size={{ xs: 12, md: 8 }}>
-          <Card sx={{ mb: 3 }}>
-            <CardContent sx={{ p: 3 }}>
-              <Box sx={{ display: 'flex', gap: 3, alignItems: 'flex-start' }}>
-                <UserAvatar
-                  firstName={user.firstName}
-                  lastName={user.lastName}
-                  avatar={user.avatar}
-                  size={80}
-                />
-                <Box sx={{ flex: 1 }}>
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
-                    <Typography variant="h5" fontWeight={700}>
-                      {user.firstName} {user.lastName}
-                    </Typography>
-                    {user.emailVerified && (
-                      <Chip
-                        icon={<VerifiedUser />}
-                        label="Verified"
-                        size="small"
-                        color="success"
-                        variant="outlined"
-                      />
-                    )}
-                  </Box>
-                  <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                    ID: {user.id}
-                  </Typography>
-                  <Stack direction="row" spacing={1} sx={{ mb: 2 }}>
-                    <StatusChip status={user.role.replace(/_/g, ' ')} size="medium" />
-                    <StatusChip status={user.status} size="medium" />
-                  </Stack>
-                  <Divider sx={{ my: 2 }} />
-                  <Grid container spacing={2}>
-                    <Grid size={{ xs: 12, sm: 6 }}>
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                        <Email fontSize="small" color="action" />
-                        <Typography variant="body2">{user.email}</Typography>
-                      </Box>
-                    </Grid>
-                    <Grid size={{ xs: 12, sm: 6 }}>
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                        <Phone fontSize="small" color="action" />
-                        <Typography variant="body2">{user.phone}</Typography>
-                      </Box>
-                    </Grid>
-                    <Grid size={{ xs: 12, sm: 6 }}>
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                        <LocationOn fontSize="small" color="action" />
-                        <Typography variant="body2">{user.city || 'Not specified'}</Typography>
-                      </Box>
-                    </Grid>
-                    <Grid size={{ xs: 12, sm: 6 }}>
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                        <CalendarToday fontSize="small" color="action" />
-                        <Typography variant="body2">Joined {formatDate(user.createdAt)}</Typography>
-                      </Box>
-                    </Grid>
-                  </Grid>
-                </Box>
-              </Box>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardContent sx={{ p: 3 }}>
-              <Typography variant="h6" fontWeight={600} sx={{ mb: 2 }}>
-                Statistics
-              </Typography>
-              <Grid container spacing={3}>
-                <Grid size={{ xs: 12, sm: 4 }}>
-                  <Box sx={{ textAlign: 'center', py: 2, bgcolor: 'grey.50', borderRadius: 2 }}>
-                    <Typography variant="h4" fontWeight={700} color="primary.main">
-                      {user.totalBookings}
-                    </Typography>
-                    <Typography variant="body2" color="text.secondary">
-                      Total Bookings
-                    </Typography>
-                  </Box>
-                </Grid>
-                <Grid size={{ xs: 12, sm: 4 }}>
-                  <Box sx={{ textAlign: 'center', py: 2, bgcolor: 'grey.50', borderRadius: 2 }}>
-                    <Typography variant="h4" fontWeight={700} color="success.main">
-                      {formatCurrency(user.totalSpent)}
-                    </Typography>
-                    <Typography variant="body2" color="text.secondary">
-                      Total Spent
-                    </Typography>
-                  </Box>
-                </Grid>
-                <Grid size={{ xs: 12, sm: 4 }}>
-                  <Box sx={{ textAlign: 'center', py: 2, bgcolor: 'grey.50', borderRadius: 2 }}>
-                    <Typography variant="h4" fontWeight={700} color="info.main">
-                      {formatDate(user.createdAt)}
-                    </Typography>
-                    <Typography variant="body2" color="text.secondary">
-                      Member Since
-                    </Typography>
-                  </Box>
-                </Grid>
-              </Grid>
-            </CardContent>
-          </Card>
-        </Grid>
-
-        <Grid size={{ xs: 12, md: 4 }}>
-          <Card sx={{ mb: 3 }}>
-            <CardContent sx={{ p: 3 }}>
-              <Typography variant="h6" fontWeight={600} sx={{ mb: 2 }}>
-                Quick Actions
-              </Typography>
-              <Stack spacing={1.5}>
-                <Button
-                  variant="outlined"
-                  startIcon={<Edit />}
-                  fullWidth
-                  onClick={handleEdit}
-                >
-                  Edit Profile
-                </Button>
-                <Button
-                  variant="outlined"
-                  startIcon={<Block />}
-                  fullWidth
-                  color={isSuspended ? 'success' : 'warning'}
-                  onClick={() => setSuspendDialogOpen(true)}
-                >
-                  {isSuspended ? 'Activate User' : 'Suspend User'}
-                </Button>
-                <Button
-                  variant="outlined"
-                  startIcon={<Delete />}
-                  fullWidth
-                  color="error"
-                  onClick={() => setDeleteDialogOpen(true)}
-                >
-                  Delete User
-                </Button>
-              </Stack>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardContent sx={{ p: 3 }}>
-              <Typography variant="h6" fontWeight={600} sx={{ mb: 2 }}>
-                Activity
-              </Typography>
-              <List disablePadding>
-                {activityItems.map((item, index) => (
-                  <ListItem key={index} disablePadding sx={{ py: 1 }}>
-                    <ListItemIcon sx={{ minWidth: 36 }}>
-                      {item.icon}
-                    </ListItemIcon>
-                    <ListItemText
-                      primary={item.text}
-                      secondary={item.value}
-                      primaryTypographyProps={{ variant: 'body2', fontWeight: 500 }}
-                      secondaryTypographyProps={{ variant: 'body2' }}
-                    />
-                  </ListItem>
-                ))}
-              </List>
-              <Divider sx={{ my: 1 }} />
-              <Box sx={{ px: 2, py: 1 }}>
-                <Typography variant="caption" color="text.secondary">
-                  Last active {formatRelativeTime(user.lastLoginAt)}
-                </Typography>
-              </Box>
-            </CardContent>
-          </Card>
-        </Grid>
-      </Grid>
-
-      <FormDialog
-        open={editDialogOpen}
-        title="Edit User"
-        onClose={() => setEditDialogOpen(false)}
-        onSubmit={handleSubmit(handleFormSubmit)}
-        submitText="Update"
-        maxWidth="sm"
-      >
-        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2.5, pt: 1 }}>
-          <Box sx={{ display: 'flex', gap: 2 }}>
-            <FormTextField name="firstName" control={control as Control<any>} label="First Name" required />
-            <FormTextField name="lastName" control={control as Control<any>} label="Last Name" required />
-          </Box>
-          <FormTextField name="email" control={control as Control<any>} label="Email" type="email" required />
-          <FormTextField name="phone" control={control as Control<any>} label="Phone" required />
-          <FormSelect name="role" control={control as Control<any>} label="Role" options={roleOptions} required />
-        </Box>
-      </FormDialog>
-
-      <ConfirmDialog
-        open={suspendDialogOpen}
-        title={isSuspended ? 'Activate User' : 'Suspend User'}
-        message={isSuspended ? `Are you sure you want to activate ${user.firstName} ${user.lastName}?` : `Are you sure you want to suspend ${user.firstName} ${user.lastName}? They will not be able to access the platform.`}
-        confirmText={isSuspended ? 'Activate' : 'Suspend'}
-        onConfirm={handleSuspend}
-        onCancel={() => setSuspendDialogOpen(false)}
-        severity={isSuspended ? 'info' : 'warning'}
-      />
-
-      <ConfirmDialog
-        open={deleteDialogOpen}
-        title="Delete User"
-        message={`Are you sure you want to delete ${user.firstName} ${user.lastName}? This action cannot be undone.`}
-        confirmText="Delete"
-        onConfirm={handleDelete}
-        onCancel={() => setDeleteDialogOpen(false)}
-        severity="error"
-      />
-
-      <Snackbar
-        open={snackbar.open}
-        autoHideDuration={3000}
-        onClose={() => setSnackbar((s) => ({ ...s, open: false }))}
-        anchorOrigin={{ vertical: 'top', horizontal: 'right' }}
-      >
-        <Alert
-          onClose={() => setSnackbar((s) => ({ ...s, open: false }))}
-          severity={snackbar.severity}
-          variant="filled"
-        >
-          {snackbar.message}
+      {user.error && (
+        <Alert severity="error" sx={{ mb: 2 }} onClose={user.refetch}>
+          {user.error}
         </Alert>
-      </Snackbar>
+      )}
+
+      {user.loading && (
+        <Card>
+          <CardContent>
+            <Skeleton variant="circular" width={80} height={80} />
+            <Skeleton variant="text" width="40%" height={40} sx={{ mt: 2 }} />
+            <Skeleton variant="text" width="60%" />
+          </CardContent>
+        </Card>
+      )}
+
+      {!user.loading && user.data && (
+        <Grid container spacing={3}>
+          <Grid size={{ xs: 12, md: 4 }}>
+            <Card>
+              <CardContent sx={{ textAlign: 'center' }}>
+                <UserAvatar
+                  firstName={user.data.firstName ?? ''}
+                  lastName={user.data.lastName ?? ''}
+                  avatar={resolveMediaUrl(user.data.profileImage) ?? undefined}
+                  size={88}
+                />
+                <Typography variant="h6" fontWeight={700} sx={{ mt: 2 }}>
+                  {`${user.data.firstName ?? ''} ${user.data.lastName ?? ''}`.trim() || 'Unnamed customer'}
+                </Typography>
+                <Typography variant="body2" color="text.secondary">
+                  {user.data.email ?? 'No email on file'}
+                </Typography>
+                <Stack direction="row" spacing={1} justifyContent="center" sx={{ mt: 2 }}>
+                  <StatusChip status={user.data.status} />
+                  <Chip
+                    size="small"
+                    label={user.data.role}
+                    variant="outlined"
+                  />
+                </Stack>
+
+                <Divider sx={{ my: 3 }} />
+
+                <Stack spacing={1}>
+                  <Button
+                    fullWidth
+                    color={isBlocked ? 'success' : 'warning'}
+                    variant="outlined"
+                    startIcon={isBlocked ? <CheckCircle /> : <Block />}
+                    disabled={isDeleted}
+                    onClick={() => setPending(isBlocked ? 'unblock' : 'block')}
+                  >
+                    {isBlocked ? 'Unblock customer' : 'Block customer'}
+                  </Button>
+                  <Button
+                    fullWidth
+                    color="info"
+                    variant="outlined"
+                    startIcon={<VerifiedUser />}
+                    disabled={isDeleted || (user.data.isMobileVerified && user.data.isEmailVerified)}
+                    onClick={() => setPending('verify')}
+                  >
+                    Mark as verified
+                  </Button>
+                  <Button
+                    fullWidth
+                    color="error"
+                    variant="outlined"
+                    startIcon={<DeleteOutline />}
+                    disabled={isDeleted}
+                    onClick={() => setPending('delete')}
+                  >
+                    Delete customer
+                  </Button>
+                </Stack>
+              </CardContent>
+            </Card>
+          </Grid>
+
+          <Grid size={{ xs: 12, md: 8 }}>
+            <Card>
+              <CardContent>
+                <Typography variant="h6" fontWeight={600} gutterBottom>
+                  Account
+                </Typography>
+                <Divider sx={{ mb: 1 }} />
+                <DetailRow
+                  label="Customer ID"
+                  value={<Typography variant="body2" fontFamily="monospace">{user.data.id}</Typography>}
+                />
+                <DetailRow label="Mobile" value={formatPhone(user.data.mobile, user.data.countryCode)} />
+                <DetailRow label="Email" value={user.data.email ?? '—'} />
+                <DetailRow
+                  label="Mobile verified"
+                  value={user.data.isMobileVerified ? 'Yes' : 'No'}
+                />
+                <DetailRow
+                  label="Email verified"
+                  value={user.data.isEmailVerified ? 'Yes' : 'No'}
+                />
+                <DetailRow
+                  label="Profile completed"
+                  value={user.data.isProfileCompleted ? 'Yes' : 'No'}
+                />
+                <DetailRow label="Gender" value={user.data.gender ?? '—'} />
+                <DetailRow
+                  label="Date of birth"
+                  value={user.data.dob ? formatDateTime(user.data.dob) : '—'}
+                />
+                <DetailRow label="Auth provider" value={user.data.authProvider} />
+                <Divider sx={{ my: 2 }} />
+                <Typography variant="h6" fontWeight={600} gutterBottom>
+                  Activity
+                </Typography>
+                <DetailRow label="Registered" value={formatDateTime(user.data.createdAt)} />
+                <DetailRow label="Last updated" value={formatDateTime(user.data.updatedAt)} />
+              </CardContent>
+            </Card>
+
+            <Alert severity="info" sx={{ mt: 3 }}>
+              Bookings, addresses and saved cards are not exposed for a customer by the admin API, so they
+              are not shown on this page.
+            </Alert>
+          </Grid>
+        </Grid>
+      )}
+
+      <ConfirmDialog
+        open={Boolean(pending)}
+        title="Please confirm"
+        message={confirmMessage()}
+        severity={pending === 'block' || pending === 'delete' ? 'error' : 'warning'}
+        loading={actionLoading}
+        onCancel={() => setPending(null)}
+        onConfirm={runAction}
+      />
     </AdminLayout>
   );
 }

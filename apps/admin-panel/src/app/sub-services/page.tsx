@@ -1,262 +1,391 @@
 'use client';
 
-import { useState, useMemo } from 'react';
-import {
-  Box,
-  Typography,
-  IconButton,
-  Tooltip,
-  Button,
-} from '@mui/material';
-import { DataGrid, type GridColDef } from '@mui/x-data-grid';
-import {
-  Add as AddIcon,
-  Edit as EditIcon,
-  Delete as DeleteIcon,
-} from '@mui/icons-material';
-import { useForm } from 'react-hook-form';
-import { zodResolver } from '@hookform/resolvers/zod';
-import { z } from 'zod';
+import React, { useMemo, useState } from 'react';
+import { Alert, Box, Button, Stack, Typography } from '@mui/material';
+import { Add, DeleteOutline, Edit, Refresh } from '@mui/icons-material';
+import { useRouter } from 'next/navigation';
+import type { GridColDef } from '@mui/x-data-grid';
+
 import AdminLayout from '@/components/layout/AdminLayout';
 import PageHeader from '@/components/common/PageHeader';
 import StatusChip from '@/components/common/StatusChip';
-import SearchField from '@/components/common/SearchField';
-import ConfirmDialog from '@/components/common/ConfirmDialog';
-import FormDialog from '@/components/common/FormDialog';
-import FormTextField from '@/components/common/FormTextField';
+import ImageCell from '@/components/common/ImageCell';
+import FormInput from '@/components/common/FormInput';
 import FormSelect from '@/components/common/FormSelect';
-import { dummySubServices } from '@/data/subServices';
-import { dummyCategories } from '@/data/categories';
-import type { SubService } from '@/types';
+import FormSwitchField from '@/components/common/FormSwitchField';
+import FormDialog from '@/components/dialogs/FormDialog';
+import ConfirmDialog from '@/components/dialogs/ConfirmDialog';
+import DataTable from '@/components/tables/DataTable';
+import { subCategoriesService } from '@/services/categories.service';
+import { servicesService } from '@/services/services.service';
+import { useApiData } from '@/hooks/useApiData';
+import { useToast } from '@/context/ToastContext';
+import { RecordStatus, type SubCategory, type SubCategoryPayload } from '@/types/api';
+import { formatDate } from '@/utils';
+import { resolveMediaUrl } from '@/utils/media';
 
-const subServiceSchema = z.object({
-  name: z.string().min(1, 'Name is required'),
-  categoryId: z.string().min(1, 'Category is required'),
-  description: z.string().optional(),
-});
-
-type SubServiceFormData = z.infer<typeof subServiceSchema>;
+const STATUS_OPTIONS = [
+  { value: RecordStatus.ACTIVE, label: 'Active' },
+  { value: RecordStatus.INACTIVE, label: 'Inactive' },
+];
 
 export default function SubServicesPage() {
-  const [subServices, setSubServices] = useState<SubService[]>(dummySubServices);
+  const router = useRouter();
+  const { showToast } = useToast();
+
   const [search, setSearch] = useState('');
-  const [categoryFilter, setCategoryFilter] = useState('');
-  const [addOpen, setAddOpen] = useState(false);
-  const [editOpen, setEditOpen] = useState(false);
-  const [deleteOpen, setDeleteOpen] = useState(false);
-  const [selected, setSelected] = useState<SubService | null>(null);
-
-  const addForm = useForm<SubServiceFormData>({
-    resolver: zodResolver(subServiceSchema),
-    defaultValues: { name: '', categoryId: '', description: '' },
+  const [serviceFilter, setServiceFilter] = useState('ALL');
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [editing, setEditing] = useState<SubCategory | null>(null);
+  const [form, setForm] = useState<Omit<SubCategoryPayload, 'image'>>({
+    serviceId: '',
+    name: '',
+    description: '',
+    sortOrder: 0,
+    isFeatured: false,
+    status: RecordStatus.ACTIVE,
   });
+  const [saving, setSaving] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<SubCategory | null>(null);
 
-  const editForm = useForm<SubServiceFormData>({
-    resolver: zodResolver(subServiceSchema),
-    defaultValues: { name: '', categoryId: '', description: '' },
-  });
+  const subCategories = useApiData((signal) => subCategoriesService.list(signal), []);
+  const services = useApiData((signal) => servicesService.list(signal), []);
 
-  const categoryOptions = dummyCategories.map((c) => ({ value: c.id, label: c.name }));
+  const serviceNameById = useMemo(() => {
+    const map = new Map<string, string>();
+    (services.data ?? []).forEach((service) => map.set(service.id, service.name));
+    return map;
+  }, [services.data]);
 
-  const filtered = useMemo(() => {
-    return subServices.filter((s) => {
-      const matchesSearch =
-        !search ||
-        s.name.toLowerCase().includes(search.toLowerCase()) ||
-        s.categoryName.toLowerCase().includes(search.toLowerCase());
-      const matchesCategory = !categoryFilter || s.categoryId === categoryFilter;
-      return matchesSearch && matchesCategory;
-    });
-  }, [subServices, search, categoryFilter]);
+  const serviceOptions = useMemo(
+    () => [
+      { value: 'ALL', label: 'All services' },
+      ...(services.data ?? [])
+        .filter((service) => service.status === RecordStatus.ACTIVE || service.id === form.serviceId)
+        .map((service) => ({ value: service.id, label: service.name })),
+    ],
+    [services.data, form.serviceId],
+  );
 
-  const handleAdd = (data: SubServiceFormData) => {
-    const cat = dummyCategories.find((c) => c.id === data.categoryId);
-    const newSub: SubService = {
-      id: String(subServices.length + 1),
-      name: data.name,
-      slug: data.name.toLowerCase().replace(/\s+/g, '-'),
-      categoryId: data.categoryId,
-      categoryName: cat?.name || '',
-      description: data.description || '',
-      isActive: true,
-      serviceCount: 0,
-      createdAt: new Date().toISOString(),
-    };
-    setSubServices((prev) => [...prev, newSub]);
-    setAddOpen(false);
-    addForm.reset();
-  };
-
-  const handleEdit = (data: SubServiceFormData) => {
-    if (!selected) return;
-    const cat = dummyCategories.find((c) => c.id === data.categoryId);
-    setSubServices((prev) =>
-      prev.map((s) =>
-        s.id === selected.id
-          ? { ...s, name: data.name, categoryId: data.categoryId, categoryName: cat?.name || '', description: data.description || '' }
-          : s
-      )
+  const rows = useMemo(() => {
+    let list = subCategories.data ?? [];
+    if (serviceFilter !== 'ALL') {
+      list = list.filter((item) => item.serviceId === serviceFilter);
+    }
+    const term = search.trim().toLowerCase();
+    if (!term) return list;
+    return list.filter((item) =>
+      `${item.name} ${item.slug} ${serviceNameById.get(item.serviceId) ?? ''}`
+        .toLowerCase()
+        .includes(term),
     );
-    setEditOpen(false);
-    editForm.reset();
-    setSelected(null);
+  }, [subCategories.data, search, serviceFilter, serviceNameById]);
+
+  const openCreate = () => {
+    setEditing(null);
+    setForm({
+      serviceId: serviceFilter !== 'ALL' ? serviceFilter : services.data?.[0]?.id ?? '',
+      name: '',
+      description: '',
+      sortOrder: 0,
+      isFeatured: false,
+      status: RecordStatus.ACTIVE,
+    });
+    setDialogOpen(true);
   };
 
-  const handleDelete = () => {
-    if (!selected) return;
-    setSubServices((prev) => prev.filter((s) => s.id !== selected.id));
-    setDeleteOpen(false);
-    setSelected(null);
+  const openEdit = (subCategory: SubCategory) => {
+    setEditing(subCategory);
+    setForm({
+      serviceId: subCategory.serviceId,
+      name: subCategory.name,
+      description: subCategory.description ?? '',
+      sortOrder: subCategory.sortOrder ?? 0,
+      isFeatured: subCategory.isFeatured,
+      status: subCategory.status,
+    });
+    setDialogOpen(true);
   };
 
-  const openEdit = (row: SubService) => {
-    setSelected(row);
-    editForm.reset({ name: row.name, categoryId: row.categoryId, description: row.description });
-    setEditOpen(true);
+  const handleSubmit = async () => {
+    if (!form.serviceId) {
+      showToast('Select the parent service (required by the backend)', 'error');
+      return;
+    }
+    if (!form.name.trim()) {
+      showToast('Sub service name is required', 'error');
+      return;
+    }
+    setSaving(true);
+    try {
+      const payload: SubCategoryPayload = { ...form };
+      if (editing) {
+        await subCategoriesService.update(editing.id, payload);
+        showToast('Sub service updated successfully', 'success');
+      } else {
+        await subCategoriesService.create(payload);
+        showToast('Sub service created successfully', 'success');
+      }
+      setDialogOpen(false);
+      subCategories.refetch();
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : 'Unable to save sub service', 'error');
+    } finally {
+      setSaving(false);
+    }
   };
 
-  const openDelete = (row: SubService) => {
-    setSelected(row);
-    setDeleteOpen(true);
+  const handleDelete = async () => {
+    if (!deleteTarget) return;
+    setSaving(true);
+    try {
+      await subCategoriesService.remove(deleteTarget.id);
+      showToast('Sub service deleted successfully', 'success');
+      setDeleteTarget(null);
+      subCategories.refetch();
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : 'Unable to delete sub service', 'error');
+    } finally {
+      setSaving(false);
+    }
   };
 
-  const columns: GridColDef[] = [
-    {
-      field: 'name',
-      headerName: 'Name',
-      flex: 1,
-      minWidth: 180,
-      renderCell: (params) => (
-        <Typography variant="body2" fontWeight={500}>
-          {params.row.name}
-        </Typography>
-      ),
-    },
-    { field: 'categoryName', headerName: 'Category', flex: 1, minWidth: 150 },
-    {
-      field: 'serviceCount',
-      headerName: 'Services',
-      width: 100,
-      align: 'center',
-      headerAlign: 'center',
-    },
-    {
-      field: 'isActive',
-      headerName: 'Status',
-      width: 120,
-      renderCell: (params) => (
-        <StatusChip status={params.value ? 'active' : 'inactive'} />
-      ),
-    },
-    {
-      field: 'actions',
-      headerName: 'Actions',
-      width: 100,
-      sortable: false,
-      filterable: false,
-      renderCell: (params) => (
-        <Box>
-          <Tooltip title="Edit">
-            <IconButton size="small" onClick={() => openEdit(params.row)}>
-              <EditIcon fontSize="small" />
-            </IconButton>
-          </Tooltip>
-          <Tooltip title="Delete">
-            <IconButton size="small" color="error" onClick={() => openDelete(params.row)}>
-              <DeleteIcon fontSize="small" />
-            </IconButton>
-          </Tooltip>
-        </Box>
-      ),
-    },
-  ];
+  const columns = useMemo<GridColDef[]>(
+    () => [
+      {
+        field: 'image',
+        headerName: '',
+        width: 64,
+        sortable: false,
+        filterable: false,
+        renderCell: (params) => (
+          <ImageCell src={resolveMediaUrl((params.row as SubCategory).image)} alt={params.row.name} />
+        ),
+      },
+      {
+        field: 'name',
+        headerName: 'Sub service',
+        flex: 1,
+        minWidth: 200,
+        sortable: false,
+        renderCell: (params) => {
+          const item = params.row as SubCategory;
+          return (
+            <Box>
+              <Typography variant="body2" fontWeight={600} noWrap>
+                {item.name}
+              </Typography>
+              <Typography variant="caption" color="text.secondary" noWrap>
+                {item.slug}
+              </Typography>
+            </Box>
+          );
+        },
+      },
+      {
+        field: 'serviceId',
+        headerName: 'Parent service',
+        flex: 1,
+        minWidth: 180,
+        sortable: false,
+        valueGetter: (value: string) => serviceNameById.get(value) ?? 'Unknown service',
+      },
+      {
+        field: 'status',
+        headerName: 'Status',
+        flex: 0.6,
+        minWidth: 110,
+        sortable: false,
+        renderCell: (params) => <StatusChip status={params.value as string} />,
+      },
+      {
+        field: 'isFeatured',
+        headerName: 'Featured',
+        flex: 0.5,
+        minWidth: 100,
+        sortable: false,
+        renderCell: (params) => (
+          <StatusChip
+            status={params.value ? 'ACTIVE' : 'INACTIVE'}
+            label={params.value ? 'Featured' : 'Standard'}
+          />
+        ),
+      },
+      {
+        field: 'sortOrder',
+        headerName: 'Order',
+        flex: 0.4,
+        minWidth: 90,
+        sortable: false,
+      },
+      {
+        field: 'createdAt',
+        headerName: 'Created',
+        flex: 0.7,
+        minWidth: 130,
+        sortable: false,
+        valueGetter: (value: string) => formatDate(value),
+      },
+      {
+        field: 'actions',
+        headerName: 'Actions',
+        flex: 0.5,
+        minWidth: 120,
+        sortable: false,
+        filterable: false,
+        renderCell: (params) => {
+          const item = params.row as SubCategory;
+          return (
+            <Stack direction="row" spacing={0.5}>
+              <Button
+                size="small"
+                startIcon={<Edit />}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  openEdit(item);
+                }}
+              >
+                Edit
+              </Button>
+              <Button
+                size="small"
+                color="error"
+                startIcon={<DeleteOutline />}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  setDeleteTarget(item);
+                }}
+              >
+                Delete
+              </Button>
+            </Stack>
+          );
+        },
+      },
+    ],
+     
+    [serviceNameById],
+  );
 
   return (
     <AdminLayout>
       <PageHeader
-        title="Sub Services"
-        description="Manage sub-services"
+        title="Sub services"
+        subtitle="Service level options used when a package is created"
+        breadcrumbs={[{ label: 'Dashboard', path: '/dashboard' }, { label: 'Sub services' }]}
         action={
-          <Button variant="contained" startIcon={<AddIcon />} onClick={() => setAddOpen(true)}>
-            Add Sub Service
-          </Button>
+          <Stack direction="row" spacing={1}>
+            <Button startIcon={<Refresh />} onClick={() => { subCategories.refetch(); services.refetch(); }}>
+              Refresh
+            </Button>
+            <Button variant="contained" startIcon={<Add />} onClick={openCreate}>
+              Add sub service
+            </Button>
+          </Stack>
         }
       />
 
-      <Box sx={{ display: 'flex', gap: 2, mb: 3 }}>
-        <SearchField value={search} onChange={setSearch} placeholder="Search sub-services..." />
-        <FormSelect
-          value={categoryFilter}
-          onChange={(val) => setCategoryFilter(val as string)}
-          options={[{ value: '', label: 'All Categories' }, ...categoryOptions]}
-          size="small"
-          sx={{ minWidth: 200 }}
-        />
-      </Box>
+      <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} sx={{ mb: 2 }}>
+        <Box sx={{ minWidth: 240 }}>
+          <FormSelect
+            label="Filter by service"
+            value={serviceFilter}
+            onChange={(value) => setServiceFilter(String(value))}
+            options={serviceOptions}
+          />
+        </Box>
+      </Stack>
 
-      <Box sx={{ height: 500, width: '100%' }}>
-        <DataGrid
-          rows={filtered}
-          columns={columns}
-          pageSizeOptions={[10, 25, 50]}
-          initialState={{ pagination: { paginationModel: { pageSize: 10 } } }}
-          disableRowSelectionOnClick
-          autoHeight
-          sx={{
-            '& .MuiDataGrid-cell': { py: 1.5 },
-          }}
-        />
-      </Box>
+      {services.error && <Alert severity="error" sx={{ mb: 2 }}>{services.error}</Alert>}
 
-      <FormDialog
-        open={addOpen}
-        onClose={() => setAddOpen(false)}
-        title="Add Sub Service"
-        onSubmit={addForm.handleSubmit(handleAdd)}
-      >
-        <FormTextField control={addForm.control} name="name" label="Name" required />
-        <FormSelect
-          control={addForm.control}
-          name="categoryId"
-          options={categoryOptions}
-          label="Category"
-          required
-        />
-        <FormTextField control={addForm.control} name="description" label="Description" multiline rows={3} />
-      </FormDialog>
+      <DataTable
+        rows={rows}
+        columns={columns}
+        loading={subCategories.loading}
+        error={subCategories.error}
+        onRetry={subCategories.refetch}
+        clientPagination
+        pageSize={25}
+        onSearch={setSearch}
+        searchPlaceholder="Search sub services"
+        onRowClick={(row: SubCategory) => router.push(`/sub-services/${row.id}`)}
+        emptyMessage="No sub services yet"
+      />
+
+      <Alert severity="info" sx={{ mb: 2 }}>
+        The sub service endpoints accept JSON only, so images cannot be uploaded from here. Manage them
+        on the service the sub service belongs to.
+      </Alert>
 
       <FormDialog
-        open={editOpen}
-        onClose={() => {
-          setEditOpen(false);
-          setSelected(null);
-          editForm.reset();
-        }}
-        title="Edit Sub Service"
-        onSubmit={editForm.handleSubmit(handleEdit)}
+        open={dialogOpen}
+        title={editing ? 'Edit sub service' : 'Add sub service'}
+        onClose={() => setDialogOpen(false)}
+        onSubmit={handleSubmit}
+        submitText={editing ? 'Save changes' : 'Create sub service'}
+        loading={saving}
       >
-        <FormTextField control={editForm.control} name="name" label="Name" required />
-        <FormSelect
-          control={editForm.control}
-          name="categoryId"
-          options={categoryOptions}
-          label="Category"
-          required
-        />
-        <FormTextField control={editForm.control} name="description" label="Description" multiline rows={3} />
+        <Stack spacing={2.5} sx={{ pt: 1 }}>
+          <FormSelect
+            label="Parent service"
+            value={form.serviceId}
+            onChange={(value) => setForm((prev) => ({ ...prev, serviceId: String(value) }))}
+            options={serviceOptions.filter((option) => option.value !== 'ALL')}
+            required
+            helperText="Required by the backend on create and update"
+          />
+
+          <FormInput
+            label="Name"
+            value={form.name}
+            onChange={(value) => setForm((prev) => ({ ...prev, name: value }))}
+            required
+          />
+
+          <FormInput
+            label="Description"
+            value={form.description ?? ''}
+            onChange={(value) => setForm((prev) => ({ ...prev, description: value }))}
+            multiline
+            rows={3}
+          />
+
+          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
+            <FormInput
+              label="Sort order"
+              value={form.sortOrder ?? 0}
+              onChange={(value) => setForm((prev) => ({ ...prev, sortOrder: Number(value) }))}
+              type="number"
+            />
+            <Box sx={{ flex: 1 }}>
+              <FormSelect
+                label="Status"
+                value={form.status}
+                onChange={(value) =>
+                  setForm((prev) => ({ ...prev, status: String(value) as RecordStatus }))
+                }
+                options={STATUS_OPTIONS}
+              />
+            </Box>
+          </Stack>
+
+          <FormSwitchField
+            label="Featured sub service"
+            checked={Boolean(form.isFeatured)}
+            onChange={(checked) => setForm((prev) => ({ ...prev, isFeatured: checked }))}
+          />
+        </Stack>
       </FormDialog>
 
       <ConfirmDialog
-        open={deleteOpen}
-        onClose={() => {
-          setDeleteOpen(false);
-          setSelected(null);
-        }}
-        onConfirm={handleDelete}
-        title="Delete Sub Service"
-        message={`Are you sure you want to delete "${selected?.name}"?`}
-        confirmText="Delete"
+        open={Boolean(deleteTarget)}
+        title="Delete sub service"
+        message={`Delete ${deleteTarget?.name ?? ''}? Packages referencing it must be reassigned first.`}
         severity="error"
+        confirmText="Delete"
+        loading={saving}
+        onCancel={() => setDeleteTarget(null)}
+        onConfirm={handleDelete}
       />
     </AdminLayout>
   );

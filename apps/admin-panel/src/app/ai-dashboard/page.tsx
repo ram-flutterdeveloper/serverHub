@@ -269,7 +269,7 @@ const serviceRecommendations: ServiceRecommendation[] = [
 export default function AIDashboardPage() {
   const [tabValue, setTabValue] = useState(0);
 
-  const impactColor = (impact: string) => {
+  const impactColor = (impact: string): 'error' | 'warning' | 'info' | 'default' => {
     switch (impact) {
       case 'high':
         return 'error';
@@ -490,7 +490,7 @@ export default function AIDashboardPage() {
                 <Chip
                   label={insight.impact}
                   size="small"
-                  color={impactColor(insight.impact) as any}
+                  color={impactColor(insight.impact)}
                   variant="outlined"
                   sx={{ textTransform: 'capitalize' }}
                 />

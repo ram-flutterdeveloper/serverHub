@@ -1,340 +1,410 @@
 'use client';
 
-import React, { useState, useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
-  Box,
-  Grid,
-  IconButton,
-  Tooltip,
-  Typography,
-  Snackbar,
   Alert,
-  Rating,
-  Switch,
+  Avatar,
+  Box,
   Button,
-  TextField,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
+  Rating,
+  Stack,
+  Typography,
 } from '@mui/material';
-import {
-  Delete,
-  Reply,
-  RateReview,
-  Star,
-  ThumbUp,
-  ThumbDown,
-} from '@mui/icons-material';
-import type { GridColDef } from '@mui/x-data-grid';
-import { useRouter } from 'next/navigation';
+import { DeleteOutline, Edit, Reply, Refresh } from '@mui/icons-material';
 
 import AdminLayout from '@/components/layout/AdminLayout';
 import PageHeader from '@/components/common/PageHeader';
-import StatCard from '@/components/common/StatCard';
-import DataTable from '@/components/tables/DataTable';
-import ConfirmDialog from '@/components/dialogs/ConfirmDialog';
+import StatusChip from '@/components/common/StatusChip';
+import FormInput from '@/components/common/FormInput';
+import FormSelect from '@/components/common/FormSelect';
 import FormDialog from '@/components/dialogs/FormDialog';
-import FormSelect from '@/components/forms/FormSelect';
-import { dummyReviews } from '@/data/reviews';
-import { Review } from '@/types';
-import { formatDate, formatRelativeTime, truncate } from '@/utils';
+import ConfirmDialog from '@/components/dialogs/ConfirmDialog';
+import DataTable from '@/components/tables/DataTable';
+import { reviewsService } from '@/services/reviews.service';
+import { useApiData } from '@/hooks/useApiData';
+import { useToast } from '@/context/ToastContext';
+import { RecordStatus, type Review, type ReviewUpdatePayload } from '@/types/api';
+import { formatDateTime, getInitials, truncate } from '@/utils';
+import { resolveMediaUrl } from '@/utils/media';
 
-const ratingFilterOptions = [
-  { value: '', label: 'All Ratings' },
-  { value: '5', label: '5 Stars' },
-  { value: '4', label: '4 Stars' },
-  { value: '3', label: '3 Stars' },
-  { value: '2', label: '2 Stars' },
-  { value: '1', label: '1 Star' },
+const STATUS_OPTIONS = [
+  { value: RecordStatus.ACTIVE, label: 'Active (public)' },
+  { value: RecordStatus.INACTIVE, label: 'Inactive (hidden)' },
 ];
 
+const emptyForm: ReviewUpdatePayload = {
+  rating: 5,
+  review: '',
+  status: RecordStatus.ACTIVE,
+  adminReply: '',
+};
+
 export default function ReviewsPage() {
-  const router = useRouter();
-  const [reviews, setReviews] = useState<Review[]>(dummyReviews);
+  const { showToast } = useToast();
+
   const [search, setSearch] = useState('');
-  const [ratingFilter, setRatingFilter] = useState('');
-  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
-  const [replyDialogOpen, setReplyDialogOpen] = useState(false);
-  const [selectedReview, setSelectedReview] = useState<Review | null>(null);
-  const [replyText, setReplyText] = useState('');
-  const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' as 'success' | 'error' });
+  const [statusFilter, setStatusFilter] = useState('ALL');
+  const [ratingFilter, setRatingFilter] = useState('ALL');
+  const [editing, setEditing] = useState<Review | null>(null);
+  const [replyTarget, setReplyTarget] = useState<Review | null>(null);
+  const [reply, setReply] = useState('');
+  const [deleteTarget, setDeleteTarget] = useState<Review | null>(null);
+  const [form, setForm] = useState<ReviewUpdatePayload>(emptyForm);
+  const [saving, setSaving] = useState(false);
 
-  const filtered = useMemo(() => {
-    let result = reviews;
-    if (ratingFilter) {
-      result = result.filter((r) => r.rating === Number(ratingFilter));
+  const reviews = useApiData((signal) => reviewsService.list(signal), []);
+
+  const rows = useMemo(() => {
+    let list = reviews.data ?? [];
+    if (statusFilter !== 'ALL') {
+      list = list.filter((item) => item.status === statusFilter);
     }
-    if (search) {
-      const q = search.toLowerCase();
-      result = result.filter(
-        (r) =>
-          r.customerName.toLowerCase().includes(q) ||
-          r.providerName.toLowerCase().includes(q) ||
-          r.service.toLowerCase().includes(q) ||
-          r.comment.toLowerCase().includes(q)
-      );
+    if (ratingFilter !== 'ALL') {
+      const min = Number(ratingFilter);
+      list = list.filter((item) => item.rating === min);
     }
-    return result;
-  }, [reviews, search, ratingFilter]);
+    const term = search.trim().toLowerCase();
+    if (!term) return list;
+    return list.filter((item) => {
+      const user = `${item.user?.firstName ?? ''} ${item.user?.lastName ?? ''}`.toLowerCase();
+      return `${user} ${item.review ?? ''} ${item.provider?.businessName ?? ''} ${item.package?.name ?? ''}`
+        .toLowerCase()
+        .includes(term);
+    });
+  }, [reviews.data, search, statusFilter, ratingFilter]);
 
-  const stats = useMemo(() => ({
-    total: reviews.length,
-    average: reviews.length > 0 ? (reviews.reduce((sum, r) => sum + r.rating, 0) / reviews.length).toFixed(1) : '0',
-    fiveStar: reviews.filter((r) => r.rating === 5).length,
-    oneStar: reviews.filter((r) => r.rating === 1).length,
-  }), [reviews]);
+  const averageRating = useMemo(() => {
+    const list = reviews.data ?? [];
+    if (list.length === 0) return 0;
+    return list.reduce((sum, item) => sum + Number(item.rating), 0) / list.length;
+  }, [reviews.data]);
 
-  const handleOpenDelete = (review: Review) => {
-    setSelectedReview(review);
-    setDeleteDialogOpen(true);
-  };
-
-  const handleOpenReply = (review: Review) => {
-    setSelectedReview(review);
-    setReplyText(review.reply || '');
-    setReplyDialogOpen(true);
-  };
-
-  const handleDeleteConfirm = () => {
-    if (selectedReview) {
-      setReviews((prev) => prev.filter((r) => r.id !== selectedReview.id));
-      setDeleteDialogOpen(false);
-      setSelectedReview(null);
-      setSnackbar({ open: true, message: 'Review deleted successfully', severity: 'success' });
-    }
-  };
-
-  const handleReplySubmit = () => {
-    if (selectedReview) {
-      setReviews((prev) =>
-        prev.map((r) =>
-          r.id === selectedReview.id ? { ...r, reply: replyText } : r
-        )
-      );
-      setReplyDialogOpen(false);
-      setSelectedReview(null);
-      setReplyText('');
-      setSnackbar({ open: true, message: 'Reply saved successfully', severity: 'success' });
-    }
-  };
-
-  const handleToggleVisible = (id: string) => {
-    setReviews((prev) =>
-      prev.map((r) => (r.id === id ? { ...r, isVisible: !r.isVisible } : r))
-    );
-    const review = reviews.find((r) => r.id === id);
-    setSnackbar({
-      open: true,
-      message: review?.isVisible ? 'Review hidden' : 'Review made visible',
-      severity: 'success',
+  const openEdit = (review: Review) => {
+    setEditing(review);
+    setForm({
+      rating: Number(review.rating),
+      review: review.review ?? '',
+      status: review.status,
+      adminReply: review.adminReply ?? '',
     });
   };
 
-  const columns: GridColDef[] = [
-    {
-      field: 'customerName',
-      headerName: 'Customer',
-      flex: 1.2,
-      minWidth: 140,
-      renderCell: ({ row }) => (
-        <Typography variant="body2" fontWeight={600}>
-          {row.customerName}
-        </Typography>
-      ),
-    },
-    {
-      field: 'providerName',
-      headerName: 'Provider',
-      flex: 1.2,
-      minWidth: 140,
-    },
-    {
-      field: 'service',
-      headerName: 'Service',
-      flex: 1,
-      minWidth: 160,
-    },
-    {
-      field: 'rating',
-      headerName: 'Rating',
-      flex: 1.2,
-      minWidth: 150,
-      renderCell: ({ row }) => (
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-          <Rating value={row.rating} precision={0.5} size="small" readOnly />
-          <Typography variant="body2" fontWeight={600}>
-            {row.rating}
-          </Typography>
-        </Box>
-      ),
-    },
-    {
-      field: 'comment',
-      headerName: 'Comment',
-      flex: 1.5,
-      minWidth: 200,
-      renderCell: ({ row }) => (
-        <Tooltip title={row.comment}>
-          <Typography variant="body2" color="text.secondary">
-            {truncate(row.comment, 60)}
-          </Typography>
-        </Tooltip>
-      ),
-    },
-    {
-      field: 'isVisible',
-      headerName: 'Visible',
-      flex: 0.6,
-      minWidth: 80,
-      renderCell: ({ row }) => (
-        <Switch
-          size="small"
-          checked={row.isVisible}
-          onChange={() => handleToggleVisible(row.id)}
-          color="primary"
-        />
-      ),
-    },
-    {
-      field: 'createdAt',
-      headerName: 'Date',
-      flex: 0.8,
-      minWidth: 120,
-      renderCell: ({ row }) => (
-        <Tooltip title={formatDate(row.createdAt)}>
-          <Typography variant="body2" color="text.secondary">
-            {formatRelativeTime(row.createdAt)}
-          </Typography>
-        </Tooltip>
-      ),
-    },
-    {
-      field: 'actions',
-      headerName: 'Actions',
-      flex: 0.6,
-      minWidth: 100,
-      sortable: false,
-      renderCell: ({ row }) => (
-        <Box sx={{ display: 'flex', gap: 0.5 }}>
-          <Tooltip title="Reply">
-            <IconButton size="small" color="primary" onClick={() => handleOpenReply(row)}>
-              <Reply fontSize="small" />
-            </IconButton>
-          </Tooltip>
-          <Tooltip title="Delete">
-            <IconButton size="small" color="error" onClick={() => handleOpenDelete(row)}>
-              <Delete fontSize="small" />
-            </IconButton>
-          </Tooltip>
-        </Box>
-      ),
-    },
-  ];
+  const openReply = (review: Review) => {
+    setReplyTarget(review);
+    setReply(review.adminReply ?? '');
+  };
+
+  const handleEdit = async () => {
+    if (!editing) return;
+    setSaving(true);
+    try {
+      await reviewsService.update(editing.id, form);
+      showToast('Review updated successfully', 'success');
+      setEditing(null);
+      reviews.refetch();
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : 'Unable to update review', 'error');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleReply = async () => {
+    if (!replyTarget) return;
+    setSaving(true);
+    try {
+      await reviewsService.update(replyTarget.id, { adminReply: reply });
+      showToast('Reply published successfully', 'success');
+      setReplyTarget(null);
+      reviews.refetch();
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : 'Unable to save reply', 'error');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!deleteTarget) return;
+    setSaving(true);
+    try {
+      await reviewsService.remove(deleteTarget.id);
+      showToast('Review deleted successfully', 'success');
+      setDeleteTarget(null);
+      reviews.refetch();
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : 'Unable to delete review', 'error');
+    } finally {
+      setSaving(false);
+    }
+  };
 
   return (
     <AdminLayout>
       <PageHeader
         title="Reviews"
-        subtitle="Manage customer reviews"
+        subtitle={
+          reviews.data
+            ? `${reviews.data.length} reviews • average rating ${averageRating.toFixed(2)}`
+            : 'Customer reviews and admin replies'
+        }
+        breadcrumbs={[{ label: 'Dashboard', path: '/dashboard' }, { label: 'Reviews' }]}
+        action={
+          <Button startIcon={<Refresh />} onClick={reviews.refetch}>
+            Refresh
+          </Button>
+        }
       />
 
-      <Grid container spacing={3} sx={{ mb: 4 }}>
-        <Grid size={{ xs: 12, sm: 6, md: 3 }}>
-          <StatCard title="Total Reviews" value={stats.total} icon={<RateReview />} color="primary" />
-        </Grid>
-        <Grid size={{ xs: 12, sm: 6, md: 3 }}>
-          <StatCard title="Average Rating" value={`${stats.average} ★`} icon={<Star />} color="warning" />
-        </Grid>
-        <Grid size={{ xs: 12, sm: 6, md: 3 }}>
-          <StatCard title="5 Star Reviews" value={stats.fiveStar} icon={<ThumbUp />} color="success" />
-        </Grid>
-        <Grid size={{ xs: 12, sm: 6, md: 3 }}>
-          <StatCard title="1 Star Reviews" value={stats.oneStar} icon={<ThumbDown />} color="error" />
-        </Grid>
-      </Grid>
-
-      <DataTable
-        rows={filtered}
-        columns={columns}
-        onSearch={setSearch}
-        searchPlaceholder="Search by customer, provider, service..."
-        toolbar={
-          // <FormSelect
-          //   name="ratingFilter"
-          //   control={{ _formValues: {}, _defaultValues: {}, _fieldValues: {} } as any}
-          //   label="Rating"
-          //   options={ratingFilterOptions}
-          //   fullWidth={false}
-          // />
+      <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} sx={{ mb: 2 }}>
+        <Box sx={{ minWidth: 200 }}>
+          <FormSelect
+            label="Status"
+            value={statusFilter}
+            onChange={(value) => setStatusFilter(String(value))}
+            options={[
+              { value: 'ALL', label: 'All statuses' },
+              { value: RecordStatus.ACTIVE, label: 'Active' },
+              { value: RecordStatus.INACTIVE, label: 'Inactive' },
+            ]}
+          />
+        </Box>
+        <Box sx={{ minWidth: 200 }}>
           <FormSelect
             label="Rating"
-            options={ratingFilterOptions}
             value={ratingFilter}
-            onChange={(value) => {
-              setRatingFilter(value as string);
-            }}
-            fullWidth={false}
-            sx={{ minWidth: 160 }}
+            onChange={(value) => setRatingFilter(String(value))}
+            options={[
+              { value: 'ALL', label: 'All ratings' },
+              { value: '5', label: '5 stars' },
+              { value: '4', label: '4 stars' },
+              { value: '3', label: '3 stars' },
+              { value: '2', label: '2 stars' },
+              { value: '1', label: '1 star' },
+            ]}
           />
+        </Box>
+      </Stack>
 
-
-        }
-        onRowClick={(row) => router.push(`/reviews/${row.id}`)}
-        emptyMessage="No reviews found matching your search."
+      <DataTable
+        rows={rows}
+        clientPagination
+        pageSize={25}
+        loading={reviews.loading}
+        error={reviews.error}
+        onRetry={reviews.refetch}
+        onSearch={setSearch}
+        searchPlaceholder="Search reviews"
+        emptyMessage="No reviews yet"
+        columns={[
+          {
+            field: 'user',
+            headerName: 'Customer',
+            flex: 1,
+            minWidth: 190,
+            sortable: false,
+            renderCell: (params) => {
+              const review = params.row as Review;
+              const name = `${review.user?.firstName ?? ''} ${review.user?.lastName ?? ''}`.trim();
+              return (
+                <Stack direction="row" spacing={1.5} alignItems="center" sx={{ height: '100%' }}>
+                  <Avatar
+                    src={resolveMediaUrl(review.user?.profileImage) ?? undefined}
+                    alt={name || 'Customer'}
+                    sx={{ width: 34, height: 34, fontSize: 13 }}
+                  >
+                    {name ? getInitials(review.user!.firstName ?? '', review.user!.lastName ?? '') : '?'}
+                  </Avatar>
+                  <Typography variant="body2" noWrap>
+                    {name || 'Deleted user'}
+                  </Typography>
+                </Stack>
+              );
+            },
+          },
+          {
+            field: 'package',
+            headerName: 'Package',
+            flex: 0.9,
+            minWidth: 160,
+            sortable: false,
+            valueGetter: (value: Review['package']) => value?.name ?? '—',
+          },
+          {
+            field: 'provider',
+            headerName: 'Provider',
+            flex: 0.9,
+            minWidth: 160,
+            sortable: false,
+            valueGetter: (value: Review['provider']) => value?.businessName ?? '—',
+          },
+          {
+            field: 'rating',
+            headerName: 'Rating',
+            flex: 0.6,
+            minWidth: 140,
+            sortable: false,
+            renderCell: (params) => (
+              <Rating value={Number(params.value)} readOnly size="small" precision={0.5} />
+            ),
+          },
+          {
+            field: 'review',
+            headerName: 'Review',
+            flex: 1.4,
+            minWidth: 220,
+            sortable: false,
+            valueGetter: (value: string | null) =>
+              value ? truncate(value, 90) : 'No comment',
+          },
+          {
+            field: 'adminReply',
+            headerName: 'Admin reply',
+            flex: 1,
+            minWidth: 180,
+            sortable: false,
+            valueGetter: (value: string | null) => (value ? truncate(value, 60) : '—'),
+          },
+          {
+            field: 'status',
+            headerName: 'Status',
+            flex: 0.6,
+            minWidth: 110,
+            sortable: false,
+            renderCell: (params) => <StatusChip status={params.value as string} />,
+          },
+          {
+            field: 'createdAt',
+            headerName: 'Posted',
+            flex: 0.7,
+            minWidth: 140,
+            sortable: false,
+            valueGetter: (value: string) => formatDateTime(value),
+          },
+          {
+            field: 'actions',
+            headerName: 'Actions',
+            flex: 0.6,
+            minWidth: 150,
+            sortable: false,
+            filterable: false,
+            renderCell: (params) => {
+              const review = params.row as Review;
+              return (
+                <Stack direction="row" spacing={0.5}>
+                  <Button size="small" startIcon={<Edit />} onClick={() => openEdit(review)}>
+                    Edit
+                  </Button>
+                  <Button
+                    size="small"
+                    startIcon={<Reply />}
+                    onClick={() => openReply(review)}
+                  >
+                    Reply
+                  </Button>
+                  <Button
+                    size="small"
+                    color="error"
+                    startIcon={<DeleteOutline />}
+                    onClick={() => setDeleteTarget(review)}
+                  >
+                    Delete
+                  </Button>
+                </Stack>
+              );
+            },
+          },
+        ]}
       />
 
       <FormDialog
-        open={replyDialogOpen}
-        title="Reply to Review"
-        onClose={() => { setReplyDialogOpen(false); setSelectedReview(null); setReplyText(''); }}
-        onSubmit={handleReplySubmit}
-        submitText="Save Reply"
+        open={Boolean(editing)}
+        title="Edit review"
+        onClose={() => setEditing(null)}
+        onSubmit={handleEdit}
+        submitText="Save changes"
+        loading={saving}
       >
-        <Box sx={{ pt: 1 }}>
-          {selectedReview && (
-            <Box sx={{ mb: 2, p: 2, bgcolor: 'grey.50', borderRadius: 1 }}>
-              <Typography variant="body2" fontWeight={600} gutterBottom>
-                {selectedReview.customerName} said:
-              </Typography>
-              <Typography variant="body2" color="text.secondary" sx={{ fontStyle: 'italic' }}>
-                &quot;{selectedReview.comment}&quot;
-              </Typography>
-            </Box>
-          )}
-          <TextField
-            fullWidth
+        <Stack spacing={2.5} sx={{ pt: 1 }}>
+          <Box>
+            <Typography variant="body2" fontWeight={500} gutterBottom>
+              Rating
+            </Typography>
+            <Rating
+              value={Number(form.rating)}
+              onChange={(_, value) => setForm((prev) => ({ ...prev, rating: value ?? 1 }))}
+            />
+          </Box>
+
+          <FormInput
+            label="Review text"
+            value={form.review ?? ''}
+            onChange={(value) => setForm((prev) => ({ ...prev, review: value }))}
             multiline
-            rows={4}
-            label="Your Reply"
-            value={replyText}
-            onChange={(e) => setReplyText(e.target.value)}
-            placeholder="Write your reply to this review..."
-            size="small"
+            rows={3}
           />
-        </Box>
+
+          <FormSelect
+            label="Visibility"
+            value={form.status}
+            onChange={(value) =>
+              setForm((prev) => ({ ...prev, status: String(value) as ReviewUpdatePayload['status'] }))
+            }
+            options={STATUS_OPTIONS}
+          />
+
+          <Alert severity="info">
+            Reviews are created by customers after a completed booking. Admins can moderate them,
+            edit the text, and publish a reply.
+          </Alert>
+        </Stack>
       </FormDialog>
 
-      <ConfirmDialog
-        open={deleteDialogOpen}
-        title="Delete Review"
-        message={`Are you sure you want to delete this review by "${selectedReview?.customerName}"? This action cannot be undone.`}
-        confirmText="Delete"
-        onConfirm={handleDeleteConfirm}
-        onCancel={() => { setDeleteDialogOpen(false); setSelectedReview(null); }}
-        severity="error"
-      />
+      <Dialog open={Boolean(replyTarget)} onClose={() => setReplyTarget(null)} fullWidth maxWidth="sm">
+        <DialogTitle>Reply to review</DialogTitle>
+        <DialogContent dividers>
+          <Stack spacing={2} sx={{ pt: 1 }}>
+            {replyTarget?.review && (
+              <Alert severity="info" icon={false}>
+                {replyTarget.review}
+              </Alert>
+            )}
+            <FormInput
+              label="Your reply"
+              value={reply}
+              onChange={setReply}
+              multiline
+              rows={4}
+            />
+            <Typography variant="caption" color="text.secondary">
+              Saving sets `adminReplyAt` to the current time on the backend.
+            </Typography>
+          </Stack>
+        </DialogContent>
+        <DialogActions sx={{ px: 3, py: 2 }}>
+          <Button onClick={() => setReplyTarget(null)} disabled={saving}>
+            Cancel
+          </Button>
+          <Button variant="contained" onClick={handleReply} disabled={saving}>
+            Publish reply
+          </Button>
+        </DialogActions>
+      </Dialog>
 
-      <Snackbar
-        open={snackbar.open}
-        autoHideDuration={3000}
-        onClose={() => setSnackbar((s) => ({ ...s, open: false }))}
-        anchorOrigin={{ vertical: 'top', horizontal: 'right' }}
-      >
-        <Alert
-          onClose={() => setSnackbar((s) => ({ ...s, open: false }))}
-          severity={snackbar.severity}
-          variant="filled"
-        >
-          {snackbar.message}
-        </Alert>
-      </Snackbar>
+      <ConfirmDialog
+        open={Boolean(deleteTarget)}
+        title="Delete review"
+        message="This permanently removes the review from the platform."
+        severity="error"
+        confirmText="Delete"
+        loading={saving}
+        onCancel={() => setDeleteTarget(null)}
+        onConfirm={handleDelete}
+      />
     </AdminLayout>
   );
 }

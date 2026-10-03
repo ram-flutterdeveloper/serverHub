@@ -48,6 +48,17 @@ export function getInitials(firstName: string, lastName: string): string {
   return `${firstName.charAt(0)}${lastName.charAt(0)}`.toUpperCase();
 }
 
+/**
+ * Builds a display phone number. The backend stores `countryCode` with its
+ * leading `+` already included (e.g. `+91`), so only add it when missing.
+ */
+export function formatPhone(mobile?: string | null, countryCode?: string | null): string {
+  if (!mobile) return countryCode ?? '—';
+  const code = (countryCode ?? '').trim();
+  if (!code) return mobile;
+  return code.startsWith('+') ? `${code} ${mobile}` : `+${code} ${mobile}`;
+}
+
 export function truncate(str: string, length: number): string {
   if (str.length <= length) return str;
   return str.slice(0, length) + '...';

@@ -366,22 +366,22 @@ export default function CouponsPage() {
         maxWidth="md"
       >
         <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2.5, pt: 1 }}>
-          <FormTextField name="code" control={control as Control<any>} label="Coupon Code" required />
+          <FormTextField name="code" control={control as Control<CouponFormValues>} label="Coupon Code" required />
           <FormSelect
             name="type"
-            control={control as Control<any>}
+            control={control as Control<CouponFormValues>}
             label="Coupon Type"
             options={typeOptions}
             required
           />
-          <FormTextField name="value" control={control as Control<any>} label="Value" type="number" required />
-          <FormTextField name="minOrderAmount" control={control as Control<any>} label="Minimum Order Amount" type="number" />
-          <FormTextField name="usageLimit" control={control as Control<any>} label="Usage Limit" type="number" />
-          <FormTextField name="startDate" control={control as Control<any>} label="Start Date" type="date" required />
-          <FormTextField name="endDate" control={control as Control<any>} label="End Date" type="date" required />
+          <FormTextField name="value" control={control as Control<CouponFormValues>} label="Value" type="number" required />
+          <FormTextField name="minOrderAmount" control={control as Control<CouponFormValues>} label="Minimum Order Amount" type="number" />
+          <FormTextField name="usageLimit" control={control as Control<CouponFormValues>} label="Usage Limit" type="number" />
+          <FormTextField name="startDate" control={control as Control<CouponFormValues>} label="Start Date" type="date" required />
+          <FormTextField name="endDate" control={control as Control<CouponFormValues>} label="End Date" type="date" required />
           <FormTextField
             name="description"
-            control={control as Control<any>}
+            control={control as Control<CouponFormValues>}
             label="Description"
             multiline
             rows={2}

@@ -1,353 +1,324 @@
 'use client';
 
-import React, { useState, useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
+import { Alert, Box, Button, Stack, Tooltip, Typography } from '@mui/material';
 import {
-  Box,
-  Grid,
-  Button,
-  IconButton,
-  Tooltip,
-  Typography,
-  Snackbar,
-  Alert,
-  Rating,
-  Stack,
-} from '@mui/material';
-import {
-  PersonAdd,
-  Edit,
-  Delete,
-  Visibility,
-  Engineering,
-  CheckCircle,
-  HourglassTop,
   Block,
-  Verified,
+  CheckCircle,
+  Refresh,
+  ThumbDown,
+  ThumbUp,
+  VerifiedUser,
 } from '@mui/icons-material';
-import type { GridColDef } from '@mui/x-data-grid';
-import { useForm, Control } from 'react-hook-form';
-import { zodResolver } from '@hookform/resolvers/zod';
 import { useRouter } from 'next/navigation';
+import type { GridColDef } from '@mui/x-data-grid';
 
 import AdminLayout from '@/components/layout/AdminLayout';
 import PageHeader from '@/components/common/PageHeader';
-import StatCard from '@/components/common/StatCard';
 import StatusChip from '@/components/common/StatusChip';
 import UserAvatar from '@/components/common/UserAvatar';
+import FormSelect from '@/components/common/FormSelect';
 import DataTable from '@/components/tables/DataTable';
-import FormDialog from '@/components/dialogs/FormDialog';
 import ConfirmDialog from '@/components/dialogs/ConfirmDialog';
-import FormTextField from '@/components/forms/FormTextField';
-import FormSelect from '@/components/forms/FormSelect';
-import { dummyProviders } from '@/data/providers';
-import { Provider, ProviderStatus } from '@/types';
-import { providerSchema, ProviderFormData } from '@/utils/validations';
-import { formatCurrency } from '@/utils';
+import { providersService } from '@/services/providers.service';
+import { useApiData } from '@/hooks/useApiData';
+import { useToast } from '@/context/ToastContext';
+import { ProviderStatus, type AdminProvider } from '@/types/api';
+import { formatDate } from '@/utils';
+import { resolveMediaUrl } from '@/utils/media';
 
-const statusOptions = Object.values(ProviderStatus).map((s) => ({
-  value: s,
-  label: s.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()),
-}));
+type ProviderAction = 'approve' | 'reject' | 'suspend' | 'activate' | 'verify-kyc';
+
+const STATUS_OPTIONS = [
+  { value: '', label: 'All statuses' },
+  { value: ProviderStatus.PENDING, label: 'Pending' },
+  { value: ProviderStatus.ACTIVE, label: 'Active' },
+  { value: ProviderStatus.REJECTED, label: 'Rejected' },
+  { value: ProviderStatus.SUSPENDED, label: 'Suspended' },
+];
 
 export default function ProvidersPage() {
   const router = useRouter();
-  const [providers, setProviders] = useState<Provider[]>(dummyProviders);
+  const { showToast } = useToast();
+
+  const [page, setPage] = useState(0);
+  const [pageSize, setPageSize] = useState(10);
   const [search, setSearch] = useState('');
-  const [statusFilter, setStatusFilter] = useState('');
-  const [dialogOpen, setDialogOpen] = useState(false);
-  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
-  const [selectedProvider, setSelectedProvider] = useState<Provider | null>(null);
-  const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' as 'success' | 'error' });
+  const [status, setStatus] = useState('');
+  const [pending, setPending] = useState<{ action: ProviderAction; provider: AdminProvider } | null>(null);
+  const [actionLoading, setActionLoading] = useState(false);
 
-  const { control, handleSubmit, reset } = useForm<ProviderFormData>({
-    resolver: zodResolver(providerSchema),
-    defaultValues: { businessName: '', businessType: '', description: '' },
-  });
+  const providers = useApiData(
+    (signal) => providersService.list({ page: page + 1, limit: pageSize, search, status }, signal),
+    [page, pageSize, search, status],
+  );
 
-  const filtered = useMemo(() => {
-    let result = providers;
-    if (statusFilter) {
-      result = result.filter((p) => p.status === statusFilter);
-    }
-    if (search) {
-      const q = search.toLowerCase();
-      result = result.filter(
-        (p) =>
-          p.businessName.toLowerCase().includes(q) ||
-          p.user.firstName.toLowerCase().includes(q) ||
-          p.user.lastName.toLowerCase().includes(q) ||
-          p.city.toLowerCase().includes(q) ||
-          p.businessType.toLowerCase().includes(q)
-      );
-    }
-    return result;
-  }, [providers, search, statusFilter]);
-
-  const stats = useMemo(() => ({
-    total: providers.length,
-    approved: providers.filter((p) => p.status === ProviderStatus.APPROVED).length,
-    pending: providers.filter((p) => p.status === ProviderStatus.PENDING).length,
-    suspended: providers.filter((p) => p.status === ProviderStatus.SUSPENDED).length,
-  }), [providers]);
-
-  const handleOpenCreate = () => {
-    setSelectedProvider(null);
-    reset({ businessName: '', businessType: '', description: '' });
-    setDialogOpen(true);
-  };
-
-  const handleOpenEdit = (provider: Provider) => {
-    setSelectedProvider(provider);
-    reset({
-      businessName: provider.businessName,
-      businessType: provider.businessType,
-      description: provider.description,
-    });
-    setDialogOpen(true);
-  };
-
-  const handleOpenDelete = (provider: Provider) => {
-    setSelectedProvider(provider);
-    setDeleteDialogOpen(true);
-  };
-
-  const handleFormSubmit = (data: ProviderFormData) => {
-    if (selectedProvider) {
-      setProviders((prev) =>
-        prev.map((p) =>
-          p.id === selectedProvider.id ? { ...p, ...data } : p
-        )
-      );
-    }
-    setDialogOpen(false);
-    setSnackbar({ open: true, message: 'Provider saved successfully', severity: 'success' });
-  };
-
-  const handleDeleteConfirm = () => {
-    if (selectedProvider) {
-      setProviders((prev) => prev.filter((p) => p.id !== selectedProvider.id));
-      setDeleteDialogOpen(false);
-      setSnackbar({ open: true, message: 'Provider deleted successfully', severity: 'success' });
+  const confirmMessage = () => {
+    if (!pending) return '';
+    switch (pending.action) {
+      case 'approve':
+        return `Approve ${pending.provider.businessName}? Their account becomes ACTIVE.`;
+      case 'reject':
+        return `Reject ${pending.provider.businessName}?`;
+      case 'suspend':
+        return `Suspend ${pending.provider.businessName}? The linked user account is also blocked.`;
+      case 'activate':
+        return `Reactivate ${pending.provider.businessName}?`;
+      case 'verify-kyc':
+        return `Mark the KYC documents of ${pending.provider.businessName} as approved?`;
+      default:
+        return '';
     }
   };
 
-  const columns: GridColDef[] = [
-    {
-      field: 'businessName',
-      headerName: 'Business Name',
-      flex: 1.5,
-      minWidth: 200,
-      renderCell: ({ row }) => (
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
-          <UserAvatar firstName={row.user.firstName} lastName={row.user.lastName} avatar={row.logo} size={36} />
-          <Box>
-            <Typography variant="body2" fontWeight={600}>
-              {row.businessName}
-            </Typography>
-            <Typography variant="caption" color="text.secondary">
-              {row.businessType}
-            </Typography>
-          </Box>
-        </Box>
-      ),
-    },
-    {
-      field: 'owner',
-      headerName: 'Owner',
-      flex: 1,
-      minWidth: 150,
-      renderCell: ({ row }) => (
-        <Typography variant="body2">
-          {row.user.firstName} {row.user.lastName}
-        </Typography>
-      ),
-    },
-    {
-      field: 'rating',
-      headerName: 'Rating',
-      flex: 0.8,
-      minWidth: 140,
-      renderCell: ({ row }) => (
-        row.rating > 0 ? (
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-            <Rating value={row.rating} precision={0.1} size="small" readOnly />
-            <Typography variant="body2" fontWeight={600}>
-              {row.rating}
-            </Typography>
-          </Box>
-        ) : (
-          <Typography variant="body2" color="text.secondary">—</Typography>
-        )
-      ),
-    },
-    {
-      field: 'totalBookings',
-      headerName: 'Bookings',
-      flex: 0.6,
-      minWidth: 80,
-      type: 'number',
-    },
-    {
-      field: 'totalEarnings',
-      headerName: 'Earnings',
-      flex: 0.9,
-      minWidth: 110,
-      renderCell: ({ row }) => formatCurrency(row.totalEarnings),
-    },
-    {
-      field: 'status',
-      headerName: 'Status',
-      flex: 0.7,
-      minWidth: 100,
-      renderCell: ({ row }) => <StatusChip status={row.status} />,
-    },
-    {
-      field: 'kycStatus',
-      headerName: 'KYC',
-      flex: 0.7,
-      minWidth: 100,
-      renderCell: ({ row }) => <StatusChip status={row.kycStatus} />,
-    },
-    {
-      field: 'isVerified',
-      headerName: 'Verified',
-      flex: 0.5,
-      minWidth: 70,
-      renderCell: ({ row }) =>
-        row.isVerified ? (
-          <CheckCircle fontSize="small" color="success" />
-        ) : (
-          <Typography variant="body2" color="text.secondary">—</Typography>
+  const runAction = async () => {
+    if (!pending) return;
+    const { action, provider } = pending;
+    setActionLoading(true);
+    try {
+      if (action === 'approve') await providersService.approve(provider.id);
+      if (action === 'reject') await providersService.reject(provider.id);
+      if (action === 'suspend') await providersService.suspend(provider.id);
+      if (action === 'activate') await providersService.activate(provider.id);
+      if (action === 'verify-kyc') await providersService.verifyKyc(provider.id);
+      showToast('Provider updated successfully', 'success');
+      setPending(null);
+      providers.refetch();
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : 'Action failed', 'error');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const columns = useMemo<GridColDef[]>(
+    () => [
+      {
+        field: 'businessName',
+        headerName: 'Provider',
+        flex: 1.5,
+        minWidth: 230,
+        sortable: false,
+        renderCell: (params) => {
+          const provider = params.row as AdminProvider;
+          return (
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, height: '100%' }}>
+              <UserAvatar
+                firstName={provider.businessName?.[0] ?? ''}
+                lastName=""
+                avatar={resolveMediaUrl(provider.profileImage) ?? undefined}
+                size={36}
+              />
+              <Box>
+                <Typography variant="body2" fontWeight={600} noWrap>
+                  {provider.businessName}
+                </Typography>
+                <Typography variant="caption" color="text.secondary" noWrap>
+                  {provider.ownerName} · {provider.phone}
+                </Typography>
+              </Box>
+            </Box>
+          );
+        },
+      },
+      {
+        field: 'experience',
+        headerName: 'Experience',
+        flex: 0.6,
+        minWidth: 110,
+        sortable: false,
+        valueGetter: (value: number) => (value ? `${value} yrs` : '—'),
+      },
+      {
+        field: 'status',
+        headerName: 'Status',
+        flex: 0.6,
+        minWidth: 110,
+        sortable: false,
+        renderCell: (params) => <StatusChip status={params.value as string} />,
+      },
+      {
+        field: 'isVerified',
+        headerName: 'KYC',
+        flex: 0.6,
+        minWidth: 110,
+        sortable: false,
+        renderCell: (params) => (
+          <StatusChip
+            status={params.value ? 'ACTIVE' : 'PENDING'}
+            label={params.value ? 'Verified' : 'Unverified'}
+          />
         ),
-    },
-    {
-      field: 'actions',
-      headerName: 'Actions',
-      flex: 0.8,
-      minWidth: 120,
-      sortable: false,
-      renderCell: ({ row }) => (
-        <Box sx={{ display: 'flex', gap: 0.5 }}>
-          <Tooltip title="View">
-            <IconButton size="small" onClick={() => router.push(`/providers/${row.id}`)}>
-              <Visibility fontSize="small" />
-            </IconButton>
-          </Tooltip>
-          <Tooltip title="Edit">
-            <IconButton size="small" color="primary" onClick={() => handleOpenEdit(row)}>
-              <Edit fontSize="small" />
-            </IconButton>
-          </Tooltip>
-          <Tooltip title="Delete">
-            <IconButton size="small" color="error" onClick={() => handleOpenDelete(row)}>
-              <Delete fontSize="small" />
-            </IconButton>
-          </Tooltip>
-        </Box>
-      ),
-    },
-  ];
+      },
+      {
+        field: 'createdAt',
+        headerName: 'Applied',
+        flex: 0.7,
+        minWidth: 120,
+        sortable: false,
+        valueGetter: (value: string) => formatDate(value),
+      },
+      {
+        field: 'actions',
+        headerName: 'Actions',
+        flex: 0.8,
+        minWidth: 210,
+        sortable: false,
+        filterable: false,
+        renderCell: (params) => {
+          const provider = params.row as AdminProvider;
+          const isPending = provider.status === ProviderStatus.PENDING;
+          const isActive = provider.status === ProviderStatus.ACTIVE;
+          return (
+            <Stack direction="row" spacing={0.5} alignItems="center">
+              {isPending && (
+                <>
+                  <Tooltip title="Approve provider">
+                    <Button
+                      size="small"
+                      color="success"
+                      startIcon={<ThumbUp />}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        setPending({ action: 'approve', provider });
+                      }}
+                    >
+                      Approve
+                    </Button>
+                  </Tooltip>
+                  <Tooltip title="Reject provider">
+                    <Button
+                      size="small"
+                      color="error"
+                      startIcon={<ThumbDown />}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        setPending({ action: 'reject', provider });
+                      }}
+                    >
+                      Reject
+                    </Button>
+                  </Tooltip>
+                </>
+              )}
+              {isActive && (
+                <Tooltip title="Suspend provider">
+                  <Button
+                    size="small"
+                    color="warning"
+                    startIcon={<Block />}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      setPending({ action: 'suspend', provider });
+                    }}
+                  >
+                    Suspend
+                  </Button>
+                </Tooltip>
+              )}
+              {!isActive && !isPending && (
+                <Tooltip title="Reactivate provider">
+                  <Button
+                    size="small"
+                    color="success"
+                    startIcon={<CheckCircle />}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      setPending({ action: 'activate', provider });
+                    }}
+                  >
+                    Activate
+                  </Button>
+                </Tooltip>
+              )}
+              {!provider.isVerified && (
+                <Tooltip title="Verify KYC documents">
+                  <Button
+                    size="small"
+                    color="info"
+                    startIcon={<VerifiedUser />}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      setPending({ action: 'verify-kyc', provider });
+                    }}
+                  >
+                    KYC
+                  </Button>
+                </Tooltip>
+              )}
+            </Stack>
+          );
+        },
+      },
+    ],
+     
+    [],
+  );
 
   return (
     <AdminLayout>
       <PageHeader
         title="Providers"
-        subtitle="Manage service providers"
+        subtitle="Approve, suspend and verify service providers"
+        breadcrumbs={[{ label: 'Dashboard', path: '/dashboard' }, { label: 'Providers' }]}
         action={
-          <Button variant="contained" startIcon={<PersonAdd />} onClick={handleOpenCreate}>
-            Add Provider
+          <Button startIcon={<Refresh />} onClick={providers.refetch}>
+            Refresh
           </Button>
         }
       />
 
-      <Grid container spacing={3} sx={{ mb: 4 }}>
-        <Grid size={{ xs: 12, sm: 6, md: 3 }}>
-          <StatCard title="Total Providers" value={stats.total} icon={<Engineering />} color="primary" />
-        </Grid>
-        <Grid size={{ xs: 12, sm: 6, md: 3 }}>
-          <StatCard title="Approved" value={stats.approved} icon={<CheckCircle />} color="success" />
-        </Grid>
-        <Grid size={{ xs: 12, sm: 6, md: 3 }}>
-          <StatCard title="Pending" value={stats.pending} icon={<HourglassTop />} color="warning" />
-        </Grid>
-        <Grid size={{ xs: 12, sm: 6, md: 3 }}>
-          <StatCard title="Suspended" value={stats.suspended} icon={<Block />} color="error" />
-        </Grid>
-      </Grid>
-
       <DataTable
-        rows={filtered}
+        rows={providers.data?.rows ?? []}
         columns={columns}
-        checkboxSelection
-        onSearch={setSearch}
-        searchPlaceholder="Search providers by name, owner, city..."
+        loading={providers.loading}
+        error={providers.error}
+        onRetry={providers.refetch}
+        totalRows={providers.data?.total ?? 0}
+        page={page}
+        pageSize={pageSize}
+        onPageChange={setPage}
+        onPageSizeChange={(size) => {
+          setPageSize(size);
+          setPage(0);
+        }}
+        onSearch={(value) => {
+          setSearch(value);
+          setPage(0);
+        }}
+        searchPlaceholder="Search owner, mobile or email"
+        onRowClick={(row: AdminProvider) => router.push(`/providers/${row.id}`)}
         toolbar={
-          // <FormSelect
-          //   name="statusFilter"
-          //   control={{ _formValues: {}, _defaultValues: {}, _fieldValues: {} } as any}
-          //   label="Status"
-          //   options={statusOptions}
-          //   fullWidth={false}
-          // />
-          <FormSelect
-            label="Status"
-            options={statusOptions}
-            value={statusFilter}
-            onChange={(value) => setStatusFilter(value as string)}
-            fullWidth={false}
-            sx={{ minWidth: 160 }}
-          />
+          <Box sx={{ minWidth: 170 }}>
+            <FormSelect
+              label="Status"
+              value={status}
+              onChange={(value) => {
+                setStatus(value as string);
+                setPage(0);
+              }}
+              options={STATUS_OPTIONS}
+            />
+          </Box>
         }
-        onRowClick={(row) => router.push(`/providers/${row.id}`)}
-        emptyMessage="No providers found matching your search."
+        emptyMessage="No providers match the current filters"
       />
 
-      <FormDialog
-        open={dialogOpen}
-        title={selectedProvider ? 'Edit Provider' : 'Add Provider'}
-        onClose={() => setDialogOpen(false)}
-        onSubmit={handleSubmit(handleFormSubmit)}
-        submitText={selectedProvider ? 'Update' : 'Create'}
-        maxWidth="md"
-      >
-        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2.5, pt: 1 }}>
-          <FormTextField name="businessName" control={control as Control<any>} label="Business Name" required />
-          <FormTextField name="businessType" control={control as Control<any>} label="Business Type" required />
-          <FormTextField
-            name="description"
-            control={control as Control<any>}
-            label="Description"
-            multiline
-            rows={3}
-            required
-          />
-        </Box>
-      </FormDialog>
+      {providers.data && providers.data.total > 0 && (
+        <Alert severity="info" sx={{ mt: 2 }}>
+          Showing {providers.data.rows.length} of {providers.data.total} providers.
+        </Alert>
+      )}
 
       <ConfirmDialog
-        open={deleteDialogOpen}
-        title="Delete Provider"
-        message={`Are you sure you want to delete ${selectedProvider?.businessName}? This action cannot be undone.`}
-        confirmText="Delete"
-        onConfirm={handleDeleteConfirm}
-        onCancel={() => setDeleteDialogOpen(false)}
-        severity="error"
+        open={Boolean(pending)}
+        title="Please confirm"
+        message={confirmMessage()}
+        severity={pending?.action === 'reject' ? 'error' : 'warning'}
+        loading={actionLoading}
+        onCancel={() => setPending(null)}
+        onConfirm={runAction}
       />
-
-      <Snackbar
-        open={snackbar.open}
-        autoHideDuration={3000}
-        onClose={() => setSnackbar((s) => ({ ...s, open: false }))}
-        anchorOrigin={{ vertical: 'top', horizontal: 'right' }}
-      >
-        <Alert
-          onClose={() => setSnackbar((s) => ({ ...s, open: false }))}
-          severity={snackbar.severity}
-          variant="filled"
-        >
-          {snackbar.message}
-        </Alert>
-      </Snackbar>
     </AdminLayout>
   );
 }

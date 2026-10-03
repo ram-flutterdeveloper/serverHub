@@ -1,6 +1,6 @@
 'use client';
 
-import { createTheme, ThemeOptions } from '@mui/material/styles';
+import { createTheme, ThemeOptions, Shadows } from '@mui/material/styles';
 import { PaletteMode } from '@mui/material';
 
 const getPalette = (mode: PaletteMode) => ({
@@ -362,7 +362,7 @@ export function getTheme(mode: PaletteMode) {
       '0 42px 80px -1px rgba(0, 0, 0, 0.15), 0 21px 42px -11px rgba(0, 0, 0, 0.15)',
       '0 44px 84px -1px rgba(0, 0, 0, 0.16), 0 22px 44px -12px rgba(0, 0, 0, 0.16)',
       '0 46px 88px -1px rgba(0, 0, 0, 0.16), 0 23px 46px -12px rgba(0, 0, 0, 0.16)',
-    ] as any,
+    ] as unknown as Shadows,
     components,
   });
 }

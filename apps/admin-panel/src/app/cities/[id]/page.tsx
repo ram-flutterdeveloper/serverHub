@@ -13,21 +13,12 @@ import {
   ListItem,
   ListItemIcon,
   ListItemText,
-  Chip,
   Snackbar,
   Alert,
   Tooltip,
   IconButton,
 } from '@mui/material';
-import {
-  ArrowBack,
-  Edit,
-  Business,
-  Inventory,
-  Map,
-  CheckCircle,
-  Cancel,
-} from '@mui/icons-material';
+import { ArrowBack, Edit, Business, Inventory, Map } from '@mui/icons-material';
 import { useRouter, useParams } from 'next/navigation';
 import { useForm, Control } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -252,9 +243,9 @@ export default function CityDetailPage() {
         submitText="Update"
       >
         <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2.5, pt: 1 }}>
-          <FormTextField name="name" control={control as Control<any>} label="City Name" required />
-          <FormTextField name="state" control={control as Control<any>} label="State" required />
-          <FormTextField name="country" control={control as Control<any>} label="Country" required />
+          <FormTextField name="name" control={control as Control<CityFormData>} label="City Name" required />
+          <FormTextField name="state" control={control as Control<CityFormData>} label="State" required />
+          <FormTextField name="country" control={control as Control<CityFormData>} label="Country" required />
         </Box>
       </FormDialog>
 

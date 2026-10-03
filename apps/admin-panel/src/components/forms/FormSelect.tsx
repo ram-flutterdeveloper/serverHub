@@ -24,6 +24,7 @@ interface FormSelectProps {
   onChange?: (value: string | string[]) => void;
   size?: 'small' | 'medium';
   sx?: object;
+  helperText?: string;
 }
 
 export default function FormSelect({
@@ -39,6 +40,7 @@ export default function FormSelect({
   onChange: onChangeProp,
   size,
   sx,
+  helperText,
 }: FormSelectProps) {
   if (control && name) {
     return (
@@ -70,10 +72,10 @@ export default function FormSelect({
                 </MenuItem>
               )}
               {options.map((option) => (
-                <MenuItem key={option.value} value={option.value}>
-                  {option.label}
-                </MenuItem>
-              ))}
+              <MenuItem key={option.value} value={option.value}>
+                {option.label}
+              </MenuItem>
+            ))}
             </Select>
             {error && <FormHelperText>{error.message}</FormHelperText>}
           </FormControl>
@@ -107,6 +109,7 @@ export default function FormSelect({
           </MenuItem>
         ))}
       </Select>
+      {helperText && <FormHelperText>{helperText}</FormHelperText>}
     </FormControl>
   );
 }

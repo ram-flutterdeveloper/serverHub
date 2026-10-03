@@ -158,6 +158,7 @@ export default function BlogsPage() {
       setSnackbar({ open: true, message: 'Blog updated', severity: 'success' });
     } else {
       const newBlog: Blog = {
+        // eslint-disable-next-line react-hooks/purity -- submit handler, not render
         id: `blg_${Date.now()}`,
         title: data.title,
         slug: data.title
@@ -369,13 +370,13 @@ export default function BlogsPage() {
         maxWidth="md"
       >
         <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2.5, pt: 1 }}>
-          <FormTextField name="title" control={control as Control<any>} label="Title" required />
-          <FormTextField name="excerpt" control={control as Control<any>} label="Excerpt" required />
+          <FormTextField name="title" control={control as Control<BlogFormData>} label="Title" required />
+          <FormTextField name="excerpt" control={control as Control<BlogFormData>} label="Excerpt" required />
           <Box sx={{ display: 'flex', gap: 2 }}>
-            <FormTextField name="author" control={control as Control<any>} label="Author" required />
+            <FormTextField name="author" control={control as Control<BlogFormData>} label="Author" required />
             <FormSelect
               name="category"
-              control={control as Control<any>}
+              control={control as Control<BlogFormData>}
               label="Category"
               options={categoryOptions}
               required
@@ -383,7 +384,7 @@ export default function BlogsPage() {
           </Box>
           <FormTextField
             name="content"
-            control={control as Control<any>}
+            control={control as Control<BlogFormData>}
             label="Content"
             multiline
             rows={6}

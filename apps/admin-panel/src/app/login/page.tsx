@@ -1,53 +1,108 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
-  Box,
-  Paper,
-  Typography,
-  TextField,
-  Button,
-  Checkbox,
-  FormControlLabel,
-  IconButton,
-  InputAdornment,
-  Snackbar,
   Alert,
+  Box,
+  Button,
   CircularProgress,
-  Link,
   Divider,
+  InputAdornment,
+  Paper,
+  TextField,
+  Typography,
 } from '@mui/material';
-import {
-  EmailOutlined,
-  LockOutlined,
-  Visibility,
-  VisibilityOff,
-  Security,
-} from '@mui/icons-material';
-import { useForm, Controller } from 'react-hook-form';
-import { zodResolver } from '@hookform/resolvers/zod';
+import { ArrowBack, PhoneAndroid, Security, VerifiedUser } from '@mui/icons-material';
 import { useRouter } from 'next/navigation';
+import { z } from 'zod';
+import { useForm } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
 
-import { loginSchema, LoginFormData } from '@/utils/validations';
+import { useAuth } from '@/context/AuthContext';
+import { useToast } from '@/context/ToastContext';
+import { ApiError } from '@/lib/api-client';
+
+const mobileSchema = z.object({
+  mobile: z
+    .string()
+    .trim()
+    .min(10, 'Enter a 10 digit mobile number')
+    .max(10, 'Enter a 10 digit mobile number')
+    .regex(/^[0-9]{10}$/, 'Mobile number must contain digits only'),
+});
+
+const otpSchema = z.object({
+  otp: z
+    .string()
+    .trim()
+    .length(6, 'OTP must be 6 digits')
+    .regex(/^[0-9]{6}$/, 'OTP must contain digits only'),
+});
+
+type MobileForm = z.infer<typeof mobileSchema>;
+type OtpForm = z.infer<typeof otpSchema>;
 
 export default function LoginPage() {
   const router = useRouter();
-  const [showPassword, setShowPassword] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [rememberMe, setRememberMe] = useState(false);
-  const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' as 'success' | 'error' });
+  const { status, isAdmin, error, lastOtp, sendOtp, verifyOtp, clearError } = useAuth();
+  const { showToast } = useToast();
 
-  const { control, handleSubmit, formState: { errors } } = useForm<LoginFormData>({
-    resolver: zodResolver(loginSchema),
-    defaultValues: { email: '', password: '' },
+  const [step, setStep] = useState<'mobile' | 'otp'>('mobile');
+  const [mobile, setMobile] = useState('');
+  const [loading, setLoading] = useState(false);
+  const devOtp = process.env.NODE_ENV === 'development' ? (lastOtp?.otp ?? null) : null;
+
+  const mobileForm = useForm<MobileForm>({
+    resolver: zodResolver(mobileSchema),
+    defaultValues: { mobile: '' },
   });
 
-  const onSubmit = async (data: LoginFormData) => {
+  const otpForm = useForm<OtpForm>({
+    resolver: zodResolver(otpSchema),
+    defaultValues: { otp: '' },
+  });
+
+  useEffect(() => {
+    if (status === 'authenticated' && isAdmin) {
+      router.replace('/dashboard');
+    }
+  }, [status, isAdmin, router]);
+
+  const handleSendOtp = mobileForm.handleSubmit(async ({ mobile: value }) => {
     setLoading(true);
-    await new Promise((r) => setTimeout(r, 1200));
-    setLoading(false);
-    setSnackbar({ open: true, message: 'Login successful! Redirecting...', severity: 'success' });
-    setTimeout(() => router.push('/dashboard'), 1000);
+    clearError();
+    try {
+      await sendOtp(value);
+      setMobile(value);
+      setStep('otp');
+      showToast('OTP sent successfully', 'success');
+    } catch (err) {
+      showToast(err instanceof ApiError ? err.message : 'Unable to send OTP', 'error');
+    } finally {
+      setLoading(false);
+    }
+  });
+
+  const handleVerify = otpForm.handleSubmit(async ({ otp }) => {
+    setLoading(true);
+    clearError();
+    try {
+      await verifyOtp(mobile, otp);
+      showToast('Login successful', 'success');
+      router.replace('/dashboard');
+    } catch (err) {
+      const message =
+        err instanceof ApiError || err instanceof Error ? err.message : 'Invalid OTP';
+      showToast(message, 'error');
+    } finally {
+      setLoading(false);
+    }
+  });
+
+  const handleBack = () => {
+    setStep('mobile');
+    otpForm.reset();
+    clearError();
   };
 
   return (
@@ -69,7 +124,6 @@ export default function LoginPage() {
           height: '200%',
           background: 'radial-gradient(circle, rgba(255,255,255,0.05) 1px, transparent 1px)',
           backgroundSize: '40px 40px',
-          animation: 'none',
         },
       }}
     >
@@ -105,108 +159,109 @@ export default function LoginPage() {
             ServiceHub
           </Typography>
           <Typography variant="body1" color="text.secondary" sx={{ mt: 0.5 }}>
-            Sign in to Admin Panel
+            {step === 'mobile' ? 'Sign in to Admin Panel' : 'Enter the OTP sent to your mobile'}
           </Typography>
         </Box>
 
-        <Box component="form" onSubmit={handleSubmit(onSubmit)} sx={{ display: 'flex', flexDirection: 'column', gap: 2.5 }}>
-          <Controller
-            name="email"
-            control={control}
-            defaultValue=""
-            render={({ field, fieldState: { error } }) => (
-              <TextField
-                {...field}
-                label="Email Address"
-                type="email"
-                fullWidth
-                size="small"
-                error={!!error}
-                helperText={error?.message}
-                slotProps={{
-                  input: {
-                    startAdornment: (
-                      <InputAdornment position="start">
-                        <EmailOutlined color="action" />
-                      </InputAdornment>
-                    ),
-                  },
-                }}
-              />
-            )}
-          />
+        {error && (
+          <Alert severity="error" sx={{ mb: 2 }}>
+            {error}
+          </Alert>
+        )}
 
-          <Controller
-            name="password"
-            control={control}
-            defaultValue=""
-            render={({ field, fieldState: { error } }) => (
-              <TextField
-                {...field}
-                label="Password"
-                type={showPassword ? 'text' : 'password'}
-                fullWidth
-                size="small"
-                error={!!error}
-                helperText={error?.message}
-                slotProps={{
-                  input: {
-                    startAdornment: (
-                      <InputAdornment position="start">
-                        <LockOutlined color="action" />
-                      </InputAdornment>
-                    ),
-                    endAdornment: (
-                      <InputAdornment position="end">
-                        <IconButton
-                          size="small"
-                          onClick={() => setShowPassword((prev) => !prev)}
-                          edge="end"
-                        >
-                          {showPassword ? <VisibilityOff fontSize="small" /> : <Visibility fontSize="small" />}
-                        </IconButton>
-                      </InputAdornment>
-                    ),
-                  },
-                }}
-              />
-            )}
-          />
-
-          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <FormControlLabel
-              control={
-                <Checkbox
-                  size="small"
-                  checked={rememberMe}
-                  onChange={(e) => setRememberMe(e.target.checked)}
-                />
-              }
-              label={<Typography variant="body2">Remember me</Typography>}
-            />
-            <Link
-              href="#"
-              variant="body2"
-              underline="hover"
-              sx={{ fontWeight: 500 }}
-              onClick={(e) => e.preventDefault()}
-            >
-              Forgot password?
-            </Link>
-          </Box>
-
-          <Button
-            type="submit"
-            variant="contained"
-            fullWidth
-            size="large"
-            disabled={loading}
-            startIcon={loading ? <CircularProgress size={18} color="inherit" /> : undefined}
-            sx={{ py: 1.2, fontWeight: 600, fontSize: '1rem', textTransform: 'none' }}
+        {step === 'mobile' ? (
+          <Box
+            component="form"
+            onSubmit={handleSendOtp}
+            sx={{ display: 'flex', flexDirection: 'column', gap: 2.5 }}
           >
-            {loading ? 'Signing in...' : 'Sign In'}
-          </Button>
-        </Box>
+            <TextField
+              label="Mobile Number"
+              placeholder="6393100159"
+              fullWidth
+              size="small"
+              autoComplete="tel"
+              inputProps={{ inputMode: 'numeric', maxLength: 10 }}
+              {...mobileForm.register('mobile')}
+              error={!!mobileForm.formState.errors.mobile}
+              helperText={
+                mobileForm.formState.errors.mobile?.message ??
+                'The OTP is sent to this number.'
+              }
+              slotProps={{
+                input: {
+                  startAdornment: (
+                    <InputAdornment position="start">
+                      <PhoneAndroid color="action" />
+                    </InputAdornment>
+                  ),
+                },
+              }}
+            />
+
+            <Button
+              type="submit"
+              variant="contained"
+              fullWidth
+              size="large"
+              disabled={loading}
+              startIcon={loading ? <CircularProgress size={18} color="inherit" /> : undefined}
+              sx={{ py: 1.2, fontWeight: 600, fontSize: '1rem', textTransform: 'none' }}
+            >
+              {loading ? 'Sending OTP...' : 'Send OTP'}
+            </Button>
+          </Box>
+        ) : (
+          <Box
+            component="form"
+            onSubmit={handleVerify}
+            sx={{ display: 'flex', flexDirection: 'column', gap: 2.5 }}
+          >
+            {devOtp && (
+              <Alert severity="warning" icon={<VerifiedUser fontSize="inherit" />}>
+                Development mode OTP: <strong>{devOtp}</strong>
+              </Alert>
+            )}
+
+            <TextField
+              label="OTP"
+              placeholder="123456"
+              fullWidth
+              size="small"
+              autoComplete="one-time-code"
+              inputProps={{ inputMode: 'numeric', maxLength: 6 }}
+              {...otpForm.register('otp')}
+              error={!!otpForm.formState.errors.otp}
+              helperText={
+                otpForm.formState.errors.otp?.message ?? `Sent to +91 ${mobile}`
+              }
+            />
+
+            <Button
+              type="submit"
+              variant="contained"
+              fullWidth
+              size="large"
+              disabled={loading}
+              startIcon={loading ? <CircularProgress size={18} color="inherit" /> : undefined}
+              sx={{ py: 1.2, fontWeight: 600, fontSize: '1rem', textTransform: 'none' }}
+            >
+              {loading ? 'Verifying...' : 'Verify & Sign In'}
+            </Button>
+
+            <Button
+              type="button"
+              variant="text"
+              color="inherit"
+              startIcon={<ArrowBack />}
+              onClick={handleBack}
+              disabled={loading}
+              sx={{ alignSelf: 'center' }}
+            >
+              Change mobile number
+            </Button>
+          </Box>
+        )}
 
         <Divider sx={{ my: 3 }}>
           <Typography variant="caption" color="text.secondary">
@@ -218,21 +273,6 @@ export default function LoginPage() {
           Protected admin access. Unauthorized attempts are logged.
         </Typography>
       </Paper>
-
-      <Snackbar
-        open={snackbar.open}
-        autoHideDuration={3000}
-        onClose={() => setSnackbar((s) => ({ ...s, open: false }))}
-        anchorOrigin={{ vertical: 'top', horizontal: 'center' }}
-      >
-        <Alert
-          onClose={() => setSnackbar((s) => ({ ...s, open: false }))}
-          severity={snackbar.severity}
-          variant="filled"
-        >
-          {snackbar.message}
-        </Alert>
-      </Snackbar>
     </Box>
   );
 }

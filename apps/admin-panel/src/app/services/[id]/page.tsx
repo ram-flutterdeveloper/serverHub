@@ -1,297 +1,476 @@
 'use client';
 
-import React, { useState, useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
+  Alert,
   Box,
-  Grid,
+  Button,
   Card,
   CardContent,
-  Typography,
-  Button,
+  CardHeader,
+  Chip,
   Divider,
-  List,
-  ListItem,
-  ListItemIcon,
-  ListItemText,
-  Snackbar,
-  Alert,
+  Grid,
+  Skeleton,
   Stack,
-  Rating,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableRow,
+  Typography,
 } from '@mui/material';
-import {
-  ArrowBack,
-  Edit,
-  Delete,
-  CalendarToday,
-  Category,
-  Engineering,
-  LocationOn,
-  AttachMoney,
-  Star,
-  TrendingUp,
-} from '@mui/icons-material';
-import { useRouter, useParams } from 'next/navigation';
-import { useForm, Control } from 'react-hook-form';
-import { zodResolver } from '@hookform/resolvers/zod';
+import { ArrowBack, Edit, Refresh } from '@mui/icons-material';
+import { useParams, useRouter } from 'next/navigation';
 
 import AdminLayout from '@/components/layout/AdminLayout';
 import PageHeader from '@/components/common/PageHeader';
 import StatusChip from '@/components/common/StatusChip';
+import ImageCell from '@/components/common/ImageCell';
+import FormInput from '@/components/common/FormInput';
+import FormSelect from '@/components/common/FormSelect';
+import FormSwitchField from '@/components/common/FormSwitchField';
+import ImageUploadField from '@/components/common/ImageUploadField';
 import FormDialog from '@/components/dialogs/FormDialog';
-import ConfirmDialog from '@/components/dialogs/ConfirmDialog';
-import FormTextField from '@/components/forms/FormTextField';
-import { dummyServices } from '@/data/services';
-import { Service, ServiceStatus } from '@/types';
-import { serviceSchema, ServiceFormData } from '@/utils/validations';
-import { formatDate, formatCurrency } from '@/utils';
+import { servicesService } from '@/services/services.service';
+import { categoriesService, subCategoriesService } from '@/services/categories.service';
+import { packagesService } from '@/services/packages.service';
+import { citiesService } from '@/services/locations.service';
+import { useApiData } from '@/hooks/useApiData';
+import { useToast } from '@/context/ToastContext';
+import { RecordStatus, type Service, type ServicePayload } from '@/types/api';
+import { formatCurrency, formatDateTime } from '@/utils';
+import { resolveMediaUrl } from '@/utils/media';
+
+const STATUS_OPTIONS = [
+  { value: RecordStatus.ACTIVE, label: 'Active' },
+  { value: RecordStatus.INACTIVE, label: 'Inactive' },
+];
+
+function DetailRow({ label, value }: { label: string; value: React.ReactNode }) {
+  return (
+    <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 2, py: 0.75 }}>
+      <Typography variant="body2" color="text.secondary">
+        {label}
+      </Typography>
+      <Typography variant="body2" fontWeight={500} textAlign="right">
+        {value}
+      </Typography>
+    </Box>
+  );
+}
 
 export default function ServiceDetailPage() {
   const router = useRouter();
-  const params = useParams();
-  const serviceId = params.id as string;
+  const params = useParams<{ id: string }>();
+  const serviceId = params.id;
+  const { showToast } = useToast();
 
-  const [services, setServices] = useState<Service[]>(dummyServices);
-  const [editOpen, setEditOpen] = useState(false);
-  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
-  const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' as 'success' | 'error' });
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [savingCities, setSavingCities] = useState(false);
+  const [cityDialogOpen, setCityDialogOpen] = useState(false);
+  const [selectedCityIds, setSelectedCityIds] = useState<string[]>([]);
+  const [form, setForm] = useState<ServicePayload>({ categoryId: '', name: '' });
+  const [image, setImage] = useState<File | null>(null);
 
-  const service = useMemo(
-    () => services.find((s) => s.id === serviceId),
-    [services, serviceId]
+  // There is no `GET /services/:id`, so the record is resolved from the list.
+  const services = useApiData((signal) => servicesService.list(signal), []);
+  const categories = useApiData((signal) => categoriesService.list(signal), []);
+  const subCategories = useApiData(
+    (signal) => subCategoriesService.listByService(serviceId, signal),
+    [serviceId],
+  );
+  const packages = useApiData(
+    (signal) => packagesService.listByService(serviceId, signal),
+    [serviceId],
+  );
+  const cities = useApiData((signal) => citiesService.list(signal), []);
+  const assignedCityIds = useApiData(
+    (signal) => servicesService.assignedCities(serviceId, signal),
+    [serviceId],
   );
 
-  const { control, handleSubmit, reset } = useForm<ServiceFormData>({
-    resolver: zodResolver(serviceSchema),
-    defaultValues: { title: '', description: '', categoryId: '', price: 0, priceType: 'fixed' },
-  });
+  const service: Service | undefined = useMemo(
+    () => services.data?.find((item) => item.id === serviceId),
+    [services.data, serviceId],
+  );
 
-  const handleEdit = () => {
-    if (service) {
-      reset({
-        title: service.title,
-        description: service.description,
-        categoryId: service.categoryId,
-        price: service.price,
-        priceType: service.priceType,
-      });
-      setEditOpen(true);
+  const categoryName = useMemo(
+    () =>
+      categories.data?.find((category) => category.id === service?.categoryId)?.name ??
+      service?.category?.name ??
+      'Unknown category',
+    [categories.data, service],
+  );
+
+  const cityNameById = useMemo(() => {
+    const map = new Map<string, string>();
+    (cities.data ?? []).forEach((city) => map.set(city.id, city.name));
+    return map;
+  }, [cities.data]);
+
+  const categoryOptions = useMemo(
+    () => (categories.data ?? []).map((category) => ({ value: category.id, label: category.name })),
+    [categories.data],
+  );
+
+  const cityOptions = useMemo(
+    () =>
+      (cities.data ?? [])
+        .filter((city) => city.status === RecordStatus.ACTIVE)
+        .map((city) => ({ value: city.id, label: `${city.name}, ${city.state}` })),
+    [cities.data],
+  );
+
+  const handleSubmit = async () => {
+    if (!form.categoryId) {
+      showToast('Select a category', 'error');
+      return;
+    }
+    if (!form.name.trim()) {
+      showToast('Service name is required', 'error');
+      return;
+    }
+    setSaving(true);
+    try {
+      await servicesService.update(serviceId, { ...form, image });
+      showToast('Service updated successfully', 'success');
+      setDialogOpen(false);
+      services.refetch();
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : 'Unable to save service', 'error');
+    } finally {
+      setSaving(false);
     }
   };
 
-  const handleFormSubmit = (data: ServiceFormData) => {
-    setServices((prev) =>
-      prev.map((s) =>
-        s.id === serviceId
-          ? {
-              ...s,
-              title: data.title,
-              description: data.description,
-              categoryId: data.categoryId,
-              price: data.price,
-              priceType: data.priceType as 'fixed' | 'hourly' | 'starting_at',
-            }
-          : s
-      )
-    );
-    setEditOpen(false);
-    setSnackbar({ open: true, message: 'Service updated successfully', severity: 'success' });
+  const openEditDialog = () => {
+    if (!service) return;
+    setForm({
+      categoryId: service.categoryId,
+      name: service.name,
+      description: service.description ?? '',
+      sortOrder: service.sortOrder ?? 0,
+      isFeatured: service.isFeatured,
+      status: service.status,
+    });
+    setImage(null);
+    setDialogOpen(true);
   };
 
-  const handleDelete = () => {
-    setDeleteDialogOpen(false);
-    setSnackbar({ open: true, message: 'Service deleted successfully', severity: 'success' });
-    router.push('/services');
+  const openCityDialog = () => {
+    setSelectedCityIds(assignedCityIds.data ?? []);
+    setCityDialogOpen(true);
   };
 
-  if (!service) {
-    return (
-      <AdminLayout>
-        <Typography variant="h6" color="text.secondary" sx={{ py: 8, textAlign: 'center' }}>
-          Service not found
-        </Typography>
-      </AdminLayout>
-    );
-  }
-
-  const infoItems = [
-    { icon: <Category />, text: 'Category', value: service.category },
-    { icon: <Engineering />, text: 'Provider', value: service.provider },
-    { icon: <LocationOn />, text: 'City', value: service.city },
-    { icon: <CalendarToday />, text: 'Created', value: formatDate(service.createdAt) },
-    { icon: <AttachMoney />, text: 'Price', value: `${formatCurrency(service.price)} / ${service.priceType}` },
-  ];
+  const handleSaveCities = async () => {
+    setSavingCities(true);
+    try {
+      await servicesService.assignCities(serviceId, selectedCityIds);
+      showToast('City availability updated', 'success');
+      setCityDialogOpen(false);
+      assignedCityIds.refetch();
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : 'Unable to update cities', 'error');
+    } finally {
+      setSavingCities(false);
+    }
+  };
 
   return (
     <AdminLayout>
       <PageHeader
-        title={service.title}
-        subtitle={service.description}
+        title={service?.name ?? 'Service details'}
         breadcrumbs={[
-          { label: 'Home', path: '/dashboard' },
+          { label: 'Dashboard', path: '/dashboard' },
           { label: 'Services', path: '/services' },
-          { label: service.title },
+          { label: 'Details' },
         ]}
         action={
-          <Button variant="outlined" startIcon={<ArrowBack />} onClick={() => router.push('/services')}>
-            Back to Services
-          </Button>
+          <Stack direction="row" spacing={1}>
+            <Button startIcon={<ArrowBack />} onClick={() => router.push('/services')}>
+              Back
+            </Button>
+            <Button
+              startIcon={<Refresh />}
+              onClick={() => {
+                services.refetch();
+                subCategories.refetch();
+                packages.refetch();
+                assignedCityIds.refetch();
+              }}
+            >
+              Refresh
+            </Button>
+            <Button
+              variant="contained"
+              startIcon={<Edit />}
+              onClick={openEditDialog}
+              disabled={!service}
+            >
+              Edit
+            </Button>
+          </Stack>
         }
       />
 
-      <Grid container spacing={3}>
-        <Grid size={{ xs: 12, md: 8 }}>
-          <Card sx={{ mb: 3 }}>
-            <CardContent sx={{ p: 3 }}>
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 3 }}>
-                <Typography variant="h5" fontWeight={700}>
-                  {service.title}
+      {services.error && (
+        <Alert severity="error" sx={{ mb: 2 }} onClose={services.refetch}>
+          {services.error}
+        </Alert>
+      )}
+
+      {services.loading && (
+        <Card>
+          <CardContent>
+            <Skeleton variant="text" width="30%" height={40} />
+            <Skeleton variant="text" width="60%" />
+          </CardContent>
+        </Card>
+      )}
+
+      {!services.loading && service && (
+        <Grid container spacing={3}>
+          <Grid size={{ xs: 12, md: 5 }}>
+            <Card>
+              <CardContent sx={{ textAlign: 'center' }}>
+                <Box sx={{ display: 'flex', justifyContent: 'center', mb: 2 }}>
+                  <ImageCell src={resolveMediaUrl(service.image)} alt={service.name} size={120} />
+                </Box>
+                <Typography variant="h6" fontWeight={700}>
+                  {service.name}
                 </Typography>
-                <StatusChip status={service.status} size="medium" />
-                {service.isFeatured && (
-                  <StatusChip status="active" label="Featured" size="medium" />
+                <Stack direction="row" spacing={1} justifyContent="center" sx={{ mt: 1.5 }}>
+                  <StatusChip status={service.status} />
+                  {service.isFeatured && <StatusChip status="ACTIVE" label="Featured" />}
+                </Stack>
+                <Divider sx={{ my: 3 }} />
+                <DetailRow label="Slug" value={service.slug} />
+                <DetailRow
+                  label="Category"
+                  value={
+                    <Button
+                      size="small"
+                      onClick={() => router.push(`/categories/${service.categoryId}`)}
+                    >
+                      {categoryName}
+                    </Button>
+                  }
+                />
+                <DetailRow label="Sort order" value={service.sortOrder} />
+                <DetailRow label="Created" value={formatDateTime(service.createdAt)} />
+                <DetailRow label="Updated" value={formatDateTime(service.updatedAt)} />
+              </CardContent>
+            </Card>
+
+            <Card sx={{ mt: 3 }}>
+              <CardHeader
+                title={`Available cities (${assignedCityIds.data?.length ?? 0})`}
+                action={
+                  <Button size="small" onClick={openCityDialog}>
+                    Manage
+                  </Button>
+                }
+              />
+              <Divider />
+              <CardContent>
+                {assignedCityIds.error && <Alert severity="error">{assignedCityIds.error}</Alert>}
+                {assignedCityIds.loading ? (
+                  <Skeleton variant="text" />
+                ) : assignedCityIds.data && assignedCityIds.data.length > 0 ? (
+                  <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+                    {assignedCityIds.data.map((cityId) => (
+                      <Chip
+                        key={cityId}
+                        size="small"
+                        label={cityNameById.get(cityId) ?? cityId}
+                      />
+                    ))}
+                  </Stack>
+                ) : (
+                  <Typography variant="body2" color="text.secondary">
+                    This service is not available in any city yet.
+                  </Typography>
                 )}
-              </Box>
+              </CardContent>
+            </Card>
+          </Grid>
 
-              <Typography variant="body1" color="text.secondary" sx={{ mb: 3 }}>
-                {service.description}
-              </Typography>
-
-              <Typography variant="h6" fontWeight={600} sx={{ mb: 2 }}>
-                Service Details
-              </Typography>
-              <List disablePadding>
-                {infoItems.map((item, index) => (
-                  <ListItem key={index} disablePadding sx={{ py: 1 }}>
-                    <ListItemIcon sx={{ minWidth: 40 }}>
-                      {item.icon}
-                    </ListItemIcon>
-                    <ListItemText
-                      primary={item.text}
-                      secondary={item.value}
-                      primaryTypographyProps={{ variant: 'body2', fontWeight: 500 }}
-                      secondaryTypographyProps={{ variant: 'body2' }}
-                    />
-                  </ListItem>
-                ))}
-              </List>
-            </CardContent>
-          </Card>
-        </Grid>
-
-        <Grid size={{ xs: 12, md: 4 }}>
-          <Card sx={{ mb: 3 }}>
-            <CardContent sx={{ p: 3 }}>
-              <Typography variant="h6" fontWeight={600} sx={{ mb: 2 }}>
-                Quick Actions
-              </Typography>
-              <Stack spacing={1.5}>
-                <Button variant="outlined" startIcon={<Edit />} fullWidth onClick={handleEdit}>
-                  Edit Service
-                </Button>
-                <Button
-                  variant="outlined"
-                  startIcon={<Delete />}
-                  fullWidth
-                  color="error"
-                  onClick={() => setDeleteDialogOpen(true)}
-                >
-                  Delete Service
-                </Button>
-              </Stack>
-            </CardContent>
-          </Card>
-
-          <Card sx={{ mb: 3 }}>
-            <CardContent sx={{ p: 3 }}>
-              <Typography variant="h6" fontWeight={600} sx={{ mb: 2 }}>
-                Statistics
-              </Typography>
-              <Grid container spacing={2}>
-                <Grid size={{ xs: 6 }}>
-                  <Box sx={{ textAlign: 'center', py: 2, bgcolor: 'grey.50', borderRadius: 2 }}>
-                    <Typography variant="h4" fontWeight={700} color="primary.main">
-                      {service.totalBookings}
-                    </Typography>
-                    <Typography variant="caption" color="text.secondary">
-                      Total Bookings
-                    </Typography>
-                  </Box>
-                </Grid>
-                <Grid size={{ xs: 6 }}>
-                  <Box sx={{ textAlign: 'center', py: 2, bgcolor: 'grey.50', borderRadius: 2 }}>
-                    <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 0.5 }}>
-                      <Star sx={{ color: 'warning.main', fontSize: 20 }} />
-                      <Typography variant="h4" fontWeight={700} color="warning.main">
-                        {service.rating}
-                      </Typography>
-                    </Box>
-                    <Typography variant="caption" color="text.secondary">
-                      Rating
-                    </Typography>
-                  </Box>
-                </Grid>
-              </Grid>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardContent sx={{ p: 3 }}>
-              <Typography variant="h6" fontWeight={600} sx={{ mb: 2 }}>
-                Pricing
-              </Typography>
-              <Box sx={{ textAlign: 'center', py: 2, bgcolor: 'grey.50', borderRadius: 2 }}>
-                <Typography variant="h3" fontWeight={700} color="primary.main">
-                  {formatCurrency(service.price)}
-                </Typography>
+          <Grid size={{ xs: 12, md: 7 }}>
+            <Card>
+              <CardHeader title="Description" />
+              <Divider />
+              <CardContent>
                 <Typography variant="body2" color="text.secondary">
-                  {service.priceType.replace(/_/g, ' ')}
+                  {service.description ?? 'No description provided.'}
                 </Typography>
-              </Box>
-            </CardContent>
-          </Card>
+              </CardContent>
+            </Card>
+
+            <Card sx={{ mt: 3 }}>
+              <CardHeader
+                title={`Sub services (${subCategories.data?.length ?? 0})`}
+                action={
+                  <Button size="small" onClick={() => router.push('/sub-services')}>
+                    Manage
+                  </Button>
+                }
+              />
+              <Divider />
+              <CardContent>
+                {subCategories.error && <Alert severity="error">{subCategories.error}</Alert>}
+                {subCategories.loading ? (
+                  <Skeleton variant="text" />
+                ) : subCategories.data && subCategories.data.length > 0 ? (
+                  <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+                    {subCategories.data.map((item) => (
+                      <Chip
+                        key={item.id}
+                        size="small"
+                        label={item.name}
+                        color={item.status === RecordStatus.ACTIVE ? 'primary' : 'default'}
+                        onClick={() => router.push(`/sub-services/${item.id}`)}
+                      />
+                    ))}
+                  </Stack>
+                ) : (
+                  <Typography variant="body2" color="text.secondary">
+                    No sub services yet.
+                  </Typography>
+                )}
+              </CardContent>
+            </Card>
+
+            <Card sx={{ mt: 3 }}>
+              <CardHeader title={`Packages (${packages.data?.length ?? 0})`} />
+              <Divider />
+              <CardContent>
+                {packages.error && <Alert severity="error">{packages.error}</Alert>}
+                {packages.loading ? (
+                  <Skeleton variant="text" />
+                ) : packages.data && packages.data.length > 0 ? (
+                  <Table size="small">
+                    <TableHead>
+                      <TableRow>
+                        <TableCell>Package</TableCell>
+                        <TableCell>Default price</TableCell>
+                        <TableCell>Status</TableCell>
+                      </TableRow>
+                    </TableHead>
+                    <TableBody>
+                      {packages.data.map((item) => (
+                        <TableRow
+                          key={item.id}
+                          hover
+                          sx={{ cursor: 'pointer' }}
+                          onClick={() => router.push(`/packages/${item.id}`)}
+                        >
+                          <TableCell>{item.name}</TableCell>
+                          <TableCell>{formatCurrency(Number(item.defaultPrice))}</TableCell>
+                          <TableCell>
+                            <StatusChip status={item.status} />
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                ) : (
+                  <Typography variant="body2" color="text.secondary">
+                    No packages for this service yet.
+                  </Typography>
+                )}
+              </CardContent>
+            </Card>
+          </Grid>
         </Grid>
-      </Grid>
+      )}
 
       <FormDialog
-        open={editOpen}
-        title="Edit Service"
-        onClose={() => setEditOpen(false)}
-        onSubmit={handleSubmit(handleFormSubmit)}
-        submitText="Update"
-        maxWidth="sm"
+        open={dialogOpen}
+        title="Edit service"
+        onClose={() => setDialogOpen(false)}
+        onSubmit={handleSubmit}
+        submitText="Save changes"
+        loading={saving}
       >
-        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2.5, pt: 1 }}>
-          <FormTextField name="title" control={control as Control<any>} label="Service Title" required />
-          <FormTextField name="description" control={control as Control<any>} label="Description" multiline rows={3} required />
-          <FormTextField name="price" control={control as Control<any>} label="Price ($)" type="number" required />
-          <FormTextField name="priceType" control={control as Control<any>} label="Price Type (fixed/hourly/starting_at)" required />
-        </Box>
+        <Stack spacing={2.5} sx={{ pt: 1 }}>
+          <FormSelect
+            label="Category"
+            value={form.categoryId}
+            onChange={(value) => setForm((prev) => ({ ...prev, categoryId: String(value) }))}
+            options={categoryOptions}
+            required
+          />
+          <FormInput
+            label="Name"
+            value={form.name}
+            onChange={(value) => setForm((prev) => ({ ...prev, name: value }))}
+            required
+          />
+          <FormInput
+            label="Description"
+            value={form.description ?? ''}
+            onChange={(value) => setForm((prev) => ({ ...prev, description: value }))}
+            multiline
+            rows={3}
+          />
+          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
+            <FormInput
+              label="Sort order"
+              value={form.sortOrder ?? 0}
+              onChange={(value) => setForm((prev) => ({ ...prev, sortOrder: Number(value) }))}
+              type="number"
+            />
+            <Box sx={{ flex: 1 }}>
+              <FormSelect
+                label="Status"
+                value={form.status}
+                onChange={(value) =>
+                  setForm((prev) => ({ ...prev, status: String(value) as RecordStatus }))
+                }
+                options={STATUS_OPTIONS}
+              />
+            </Box>
+          </Stack>
+          <FormSwitchField
+            label="Featured service"
+            checked={Boolean(form.isFeatured)}
+            onChange={(checked) => setForm((prev) => ({ ...prev, isFeatured: checked }))}
+          />
+          <ImageUploadField
+            file={image}
+            onChange={setImage}
+            previewUrl={service ? resolveMediaUrl(service.image) : null}
+          />
+        </Stack>
       </FormDialog>
 
-      <ConfirmDialog
-        open={deleteDialogOpen}
-        title="Delete Service"
-        message={`Are you sure you want to delete "${service.title}"? This action cannot be undone.`}
-        confirmText="Delete"
-        onConfirm={handleDelete}
-        onCancel={() => setDeleteDialogOpen(false)}
-        severity="error"
-      />
-
-      <Snackbar
-        open={snackbar.open}
-        autoHideDuration={3000}
-        onClose={() => setSnackbar((s) => ({ ...s, open: false }))}
-        anchorOrigin={{ vertical: 'top', horizontal: 'right' }}
+      <FormDialog
+        open={cityDialogOpen}
+        title="City availability"
+        onClose={() => setCityDialogOpen(false)}
+        onSubmit={handleSaveCities}
+        submitText="Save cities"
+        loading={savingCities}
       >
-        <Alert
-          onClose={() => setSnackbar((s) => ({ ...s, open: false }))}
-          severity={snackbar.severity}
-          variant="filled"
-        >
-          {snackbar.message}
-        </Alert>
-      </Snackbar>
+        <Stack spacing={2} sx={{ pt: 1 }}>
+          <Typography variant="body2" color="text.secondary">
+            Selected cities are the ones where this service can be booked. The backend replaces the
+            whole mapping with the cities submitted here.
+          </Typography>
+          <FormSelect
+            label="Cities"
+            value={selectedCityIds}
+            onChange={(value) =>
+              setSelectedCityIds(Array.isArray(value) ? value : [String(value)])
+            }
+            options={cityOptions}
+            multiple
+            required
+          />
+        </Stack>
+      </FormDialog>
     </AdminLayout>
   );
 }

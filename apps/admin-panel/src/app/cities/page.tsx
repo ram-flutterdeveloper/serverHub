@@ -1,259 +1,362 @@
 'use client';
 
-import React, { useState, useMemo } from 'react';
-import {
-  Box,
-  Grid,
-  IconButton,
-  Tooltip,
-  Typography,
-  Snackbar,
-  Alert,
-  Switch,
-  Button,
-} from '@mui/material';
-import {
-  Add,
-  Edit,
-  Delete,
-  Map,
-} from '@mui/icons-material';
-import type { GridColDef } from '@mui/x-data-grid';
-import { useForm, Control } from 'react-hook-form';
-import { zodResolver } from '@hookform/resolvers/zod';
+import React, { useMemo, useState } from 'react';
+import { Box, Button, Stack, Typography } from '@mui/material';
+import { Add, DeleteOutline, Edit, Refresh } from '@mui/icons-material';
 
 import AdminLayout from '@/components/layout/AdminLayout';
 import PageHeader from '@/components/common/PageHeader';
-import StatCard from '@/components/common/StatCard';
 import StatusChip from '@/components/common/StatusChip';
-import DataTable from '@/components/tables/DataTable';
+import FormInput from '@/components/common/FormInput';
+import FormSelect from '@/components/common/FormSelect';
 import FormDialog from '@/components/dialogs/FormDialog';
 import ConfirmDialog from '@/components/dialogs/ConfirmDialog';
-import FormTextField from '@/components/forms/FormTextField';
-import { dummyCities } from '@/data/cities';
-import { City } from '@/types';
-import { citySchema, CityFormData } from '@/utils/validations';
+import DataTable from '@/components/tables/DataTable';
+import { areasService, citiesService, type CityPayload } from '@/services/locations.service';
+import { useApiData } from '@/hooks/useApiData';
+import { useToast } from '@/context/ToastContext';
+import { RecordStatus, type City } from '@/types/api';
+
+const STATUS_OPTIONS = [
+  { value: RecordStatus.ACTIVE, label: 'Active' },
+  { value: RecordStatus.INACTIVE, label: 'Inactive' },
+];
+
+const emptyForm: CityPayload = {
+  name: '',
+  state: '',
+  country: 'India',
+  googlePlaceId: '',
+  latitude: 0,
+  longitude: 0,
+  sortOrder: 0,
+  status: RecordStatus.ACTIVE,
+};
 
 export default function CitiesPage() {
-  const [cities, setCities] = useState<City[]>(dummyCities);
+  const { showToast } = useToast();
+
   const [search, setSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState('ALL');
   const [dialogOpen, setDialogOpen] = useState(false);
-  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
-  const [selectedCity, setSelectedCity] = useState<City | null>(null);
-  const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' as 'success' | 'error' });
+  const [editing, setEditing] = useState<City | null>(null);
+  const [form, setForm] = useState<CityPayload>(emptyForm);
+  const [saving, setSaving] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<City | null>(null);
 
-  const { control, handleSubmit, reset } = useForm<CityFormData>({
-    resolver: zodResolver(citySchema),
-    defaultValues: { name: '', state: '', country: '' },
-  });
+  const cities = useApiData((signal) => citiesService.list(signal), []);
+  const areas = useApiData((signal) => areasService.list(signal), []);
 
-  const filtered = useMemo(() => {
-    if (!search) return cities;
-    const q = search.toLowerCase();
-    return cities.filter(
-      (c) =>
-        c.name.toLowerCase().includes(q) ||
-        c.state.toLowerCase().includes(q) ||
-        c.country.toLowerCase().includes(q)
+  const areaCountByCity = useMemo(() => {
+    const map = new Map<string, number>();
+    (areas.data ?? []).forEach((area) => {
+      map.set(area.cityId, (map.get(area.cityId) ?? 0) + 1);
+    });
+    return map;
+  }, [areas.data]);
+
+  const rows = useMemo(() => {
+    let list = cities.data ?? [];
+    if (statusFilter !== 'ALL') {
+      list = list.filter((city) => city.status === statusFilter);
+    }
+    const term = search.trim().toLowerCase();
+    if (!term) return list;
+    return list.filter((city) =>
+      `${city.name} ${city.state} ${city.country} ${city.slug}`.toLowerCase().includes(term),
     );
-  }, [cities, search]);
+  }, [cities.data, search, statusFilter]);
 
-  const stats = useMemo(() => ({
-    total: cities.length,
-    active: cities.filter((c) => c.isActive).length,
-  }), [cities]);
-
-  const handleOpenCreate = () => {
-    setSelectedCity(null);
-    reset({ name: '', state: '', country: '' });
+  const openCreate = () => {
+    setEditing(null);
+    setForm(emptyForm);
     setDialogOpen(true);
   };
 
-  const handleOpenEdit = (city: City) => {
-    setSelectedCity(city);
-    reset({ name: city.name, state: city.state, country: city.country });
+  const openEdit = (city: City) => {
+    setEditing(city);
+    setForm({
+      name: city.name,
+      state: city.state,
+      country: city.country,
+      googlePlaceId: city.googlePlaceId ?? '',
+      latitude: city.latitude ?? 0,
+      longitude: city.longitude ?? 0,
+      sortOrder: city.sortOrder ?? 0,
+      status: city.status,
+    });
     setDialogOpen(true);
   };
 
-  const handleOpenDelete = (city: City) => {
-    setSelectedCity(city);
-    setDeleteDialogOpen(true);
-  };
-
-  const handleFormSubmit = (data: CityFormData) => {
-    if (selectedCity) {
-      setCities((prev) =>
-        prev.map((c) =>
-          c.id === selectedCity.id ? { ...c, ...data } : c
-        )
-      );
-      setSnackbar({ open: true, message: 'City updated successfully', severity: 'success' });
-    } else {
-      const newCity: City = {
-        id: `city_${String(cities.length + 1).padStart(3, '0')}`,
-        name: data.name,
-        state: data.state,
-        country: data.country,
-        isActive: true,
-        providerCount: 0,
-        serviceCount: 0,
+  const handleSubmit = async () => {
+    if (!form.name.trim()) {
+      showToast('City name is required', 'error');
+      return;
+    }
+    if (!form.state.trim()) {
+      showToast('State is required', 'error');
+      return;
+    }
+    setSaving(true);
+    try {
+      const payload: CityPayload = {
+        ...form,
+        googlePlaceId: form.googlePlaceId || null,
+        latitude: form.latitude === 0 ? null : Number(form.latitude),
+        longitude: form.longitude === 0 ? null : Number(form.longitude),
       };
-      setCities((prev) => [...prev, newCity]);
-      setSnackbar({ open: true, message: 'City created successfully', severity: 'success' });
+      if (editing) {
+        await citiesService.update(editing.id, payload);
+        showToast('City updated successfully', 'success');
+      } else {
+        await citiesService.create(payload);
+        showToast('City created successfully', 'success');
+      }
+      setDialogOpen(false);
+      cities.refetch();
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : 'Unable to save city', 'error');
+    } finally {
+      setSaving(false);
     }
-    setDialogOpen(false);
   };
 
-  const handleDeleteConfirm = () => {
-    if (selectedCity) {
-      setCities((prev) => prev.filter((c) => c.id !== selectedCity.id));
-      setDeleteDialogOpen(false);
-      setSelectedCity(null);
-      setSnackbar({ open: true, message: 'City deleted successfully', severity: 'success' });
+  const handleDelete = async () => {
+    if (!deleteTarget) return;
+    setSaving(true);
+    try {
+      await citiesService.remove(deleteTarget.id);
+      showToast('City deleted successfully', 'success');
+      setDeleteTarget(null);
+      cities.refetch();
+      areas.refetch();
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : 'Unable to delete city', 'error');
+    } finally {
+      setSaving(false);
     }
   };
-
-  const handleToggleActive = (id: string) => {
-    setCities((prev) =>
-      prev.map((c) => (c.id === id ? { ...c, isActive: !c.isActive } : c))
-    );
-  };
-
-  const columns: GridColDef[] = [
-    {
-      field: 'name',
-      headerName: 'City Name',
-      flex: 1.5,
-      minWidth: 180,
-      renderCell: ({ row }) => (
-        <Typography variant="body2" fontWeight={600}>
-          {row.name}
-        </Typography>
-      ),
-    },
-    { field: 'state', headerName: 'State', flex: 1, minWidth: 130 },
-    { field: 'country', headerName: 'Country', flex: 1, minWidth: 130 },
-    {
-      field: 'providerCount',
-      headerName: 'Providers',
-      flex: 0.7,
-      minWidth: 90,
-      type: 'number',
-    },
-    {
-      field: 'serviceCount',
-      headerName: 'Services',
-      flex: 0.7,
-      minWidth: 90,
-      type: 'number',
-    },
-    {
-      field: 'isActive',
-      headerName: 'Status',
-      flex: 0.8,
-      minWidth: 100,
-      renderCell: ({ row }) => (
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-          <Switch
-            size="small"
-            checked={row.isActive}
-            onChange={() => handleToggleActive(row.id)}
-            color="primary"
-          />
-          <StatusChip status={row.isActive ? 'active' : 'inactive'} />
-        </Box>
-      ),
-    },
-    {
-      field: 'actions',
-      headerName: 'Actions',
-      flex: 0.6,
-      minWidth: 100,
-      sortable: false,
-      renderCell: ({ row }) => (
-        <Box sx={{ display: 'flex', gap: 0.5 }}>
-          <Tooltip title="Edit">
-            <IconButton size="small" color="primary" onClick={() => handleOpenEdit(row)}>
-              <Edit fontSize="small" />
-            </IconButton>
-          </Tooltip>
-          <Tooltip title="Delete">
-            <IconButton size="small" color="error" onClick={() => handleOpenDelete(row)}>
-              <Delete fontSize="small" />
-            </IconButton>
-          </Tooltip>
-        </Box>
-      ),
-    },
-  ];
 
   return (
     <AdminLayout>
       <PageHeader
         title="Cities"
-        subtitle="Manage service cities"
+        subtitle="Service locations used for availability and discovery"
+        breadcrumbs={[{ label: 'Dashboard', path: '/dashboard' }, { label: 'Cities' }]}
         action={
-          <Button variant="contained" startIcon={<Add />} onClick={handleOpenCreate}>
-            Add City
-          </Button>
+          <Stack direction="row" spacing={1}>
+            <Button startIcon={<Refresh />} onClick={cities.refetch}>
+              Refresh
+            </Button>
+            <Button variant="contained" startIcon={<Add />} onClick={openCreate}>
+              Add city
+            </Button>
+          </Stack>
         }
       />
 
-      <Grid container spacing={3} sx={{ mb: 4 }}>
-        <Grid size={{ xs: 12, sm: 6 }}>
-          <StatCard title="Total Cities" value={stats.total} icon={<Map />} color="primary" />
-        </Grid>
-        <Grid size={{ xs: 12, sm: 6 }}>
-          <StatCard title="Active Cities" value={stats.active} icon={<Map />} color="success" />
-        </Grid>
-      </Grid>
+      <Box sx={{ minWidth: 220, mb: 2 }}>
+        <FormSelect
+          label="Status"
+          value={statusFilter}
+          onChange={(value) => setStatusFilter(String(value))}
+          options={[
+            { value: 'ALL', label: 'All statuses' },
+            { value: RecordStatus.ACTIVE, label: 'Active' },
+            { value: RecordStatus.INACTIVE, label: 'Inactive' },
+          ]}
+        />
+      </Box>
 
       <DataTable
-        rows={filtered}
-        columns={columns}
+        rows={rows}
+        clientPagination
+        pageSize={25}
+        loading={cities.loading}
+        error={cities.error}
+        onRetry={cities.refetch}
         onSearch={setSearch}
-        searchPlaceholder="Search cities by name, state, country..."
-        emptyMessage="No cities found matching your search."
+        searchPlaceholder="Search cities"
+        emptyMessage="No cities configured"
+        columns={[
+          {
+            field: 'name',
+            headerName: 'City',
+            flex: 1,
+            minWidth: 190,
+            sortable: false,
+            renderCell: (params) => {
+              const city = params.row as City;
+              return (
+                <Box>
+                  <Typography variant="body2" fontWeight={600} noWrap>
+                    {city.name}
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary" noWrap>
+                    {city.slug}
+                  </Typography>
+                </Box>
+              );
+            },
+          },
+          {
+            field: 'state',
+            headerName: 'State / Country',
+            flex: 1,
+            minWidth: 170,
+            sortable: false,
+            valueGetter: (value: string, row: City) => `${value}, ${row.country}`,
+          },
+          {
+            field: 'latitude',
+            headerName: 'Coordinates',
+            flex: 0.9,
+            minWidth: 180,
+            sortable: false,
+            valueGetter: (value: number | null, row: City) =>
+              value == null || row.longitude == null ? '—' : `${value}, ${row.longitude}`,
+          },
+          {
+            field: 'cityId',
+            headerName: 'Areas',
+            flex: 0.5,
+            minWidth: 90,
+            sortable: false,
+            valueGetter: (value: string, row: City) => areaCountByCity.get(row.id) ?? 0,
+          },
+          {
+            field: 'sortOrder',
+            headerName: 'Order',
+            flex: 0.4,
+            minWidth: 90,
+            sortable: false,
+          },
+          {
+            field: 'status',
+            headerName: 'Status',
+            flex: 0.6,
+            minWidth: 110,
+            sortable: false,
+            renderCell: (params) => <StatusChip status={params.value as string} />,
+          },
+          {
+            field: 'actions',
+            headerName: 'Actions',
+            flex: 0.5,
+            minWidth: 120,
+            sortable: false,
+            filterable: false,
+            renderCell: (params) => {
+              const city = params.row as City;
+              return (
+                <Stack direction="row" spacing={0.5}>
+                  <Button
+                    size="small"
+                    startIcon={<Edit />}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      openEdit(city);
+                    }}
+                  >
+                    Edit
+                  </Button>
+                  <Button
+                    size="small"
+                    color="error"
+                    startIcon={<DeleteOutline />}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      setDeleteTarget(city);
+                    }}
+                  >
+                    Delete
+                  </Button>
+                </Stack>
+              );
+            },
+          },
+        ]}
       />
 
       <FormDialog
         open={dialogOpen}
-        title={selectedCity ? 'Edit City' : 'Add City'}
+        title={editing ? 'Edit city' : 'Add city'}
         onClose={() => setDialogOpen(false)}
-        onSubmit={handleSubmit(handleFormSubmit)}
-        submitText={selectedCity ? 'Update' : 'Create'}
+        onSubmit={handleSubmit}
+        submitText={editing ? 'Save changes' : 'Create city'}
+        loading={saving}
       >
-        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2.5, pt: 1 }}>
-          <FormTextField name="name" control={control as Control<any>} label="City Name" required />
-          <FormTextField name="state" control={control as Control<any>} label="State" required />
-          <FormTextField name="country" control={control as Control<any>} label="Country" required />
-        </Box>
+        <Stack spacing={2.5} sx={{ pt: 1 }}>
+          <FormInput
+            label="City name"
+            value={form.name}
+            onChange={(value) => setForm((prev) => ({ ...prev, name: value }))}
+            required
+          />
+          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
+            <FormInput
+              label="State"
+              value={form.state}
+              onChange={(value) => setForm((prev) => ({ ...prev, state: value }))}
+              required
+            />
+            <FormInput
+              label="Country"
+              value={form.country ?? ''}
+              onChange={(value) => setForm((prev) => ({ ...prev, country: value }))}
+            />
+          </Stack>
+          <FormInput
+            label="Google place id"
+            value={form.googlePlaceId ?? ''}
+            onChange={(value) => setForm((prev) => ({ ...prev, googlePlaceId: value }))}
+            helperText="Optional, used for place search"
+          />
+          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
+            <FormInput
+              label="Latitude"
+              value={form.latitude ?? 0}
+              onChange={(value) => setForm((prev) => ({ ...prev, latitude: Number(value) }))}
+              type="number"
+            />
+            <FormInput
+              label="Longitude"
+              value={form.longitude ?? 0}
+              onChange={(value) => setForm((prev) => ({ ...prev, longitude: Number(value) }))}
+              type="number"
+            />
+          </Stack>
+          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
+            <FormInput
+              label="Sort order"
+              value={form.sortOrder ?? 0}
+              onChange={(value) => setForm((prev) => ({ ...prev, sortOrder: Number(value) }))}
+              type="number"
+            />
+            <Box sx={{ flex: 1 }}>
+              <FormSelect
+                label="Status"
+                value={form.status}
+                onChange={(value) =>
+                  setForm((prev) => ({ ...prev, status: String(value) as CityPayload['status'] }))
+                }
+                options={STATUS_OPTIONS}
+              />
+            </Box>
+          </Stack>
+        </Stack>
       </FormDialog>
 
       <ConfirmDialog
-        open={deleteDialogOpen}
-        title="Delete City"
-        message={`Are you sure you want to delete "${selectedCity?.name}"? This action cannot be undone.`}
-        confirmText="Delete"
-        onConfirm={handleDeleteConfirm}
-        onCancel={() => { setDeleteDialogOpen(false); setSelectedCity(null); }}
+        open={Boolean(deleteTarget)}
+        title="Delete city"
+        message={`Delete ${deleteTarget?.name ?? ''}? Areas and provider locations in this city may block the delete.`}
         severity="error"
+        confirmText="Delete"
+        loading={saving}
+        onCancel={() => setDeleteTarget(null)}
+        onConfirm={handleDelete}
       />
-
-      <Snackbar
-        open={snackbar.open}
-        autoHideDuration={3000}
-        onClose={() => setSnackbar((s) => ({ ...s, open: false }))}
-        anchorOrigin={{ vertical: 'top', horizontal: 'right' }}
-      >
-        <Alert
-          onClose={() => setSnackbar((s) => ({ ...s, open: false }))}
-          severity={snackbar.severity}
-          variant="filled"
-        >
-          {snackbar.message}
-        </Alert>
-      </Snackbar>
     </AdminLayout>
   );
 }

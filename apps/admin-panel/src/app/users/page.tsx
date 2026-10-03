@@ -1,324 +1,276 @@
 'use client';
 
-import React, { useState, useMemo } from 'react';
-import {
-  Box,
-  Grid,
-  Button,
-  IconButton,
-  Tooltip,
-  Typography,
-  Snackbar,
-  Alert,
-} from '@mui/material';
-import {
-  PersonAdd,
-  Edit,
-  Delete,
-  Visibility,
-  People,
-  Block,
-  HowToReg,
-  PersonOutline,
-} from '@mui/icons-material';
-import type { GridColDef } from '@mui/x-data-grid';
-import { useForm, Control } from 'react-hook-form';
-import { zodResolver } from '@hookform/resolvers/zod';
+import React, { useMemo, useState } from 'react';
+import { Alert, Box, Button, IconButton, Stack, Tooltip, Typography } from '@mui/material';
+import { Block, CheckCircle, DeleteOutline, Refresh, VerifiedUser } from '@mui/icons-material';
 import { useRouter } from 'next/navigation';
-import dayjs from 'dayjs';
+import type { GridColDef } from '@mui/x-data-grid';
 
 import AdminLayout from '@/components/layout/AdminLayout';
 import PageHeader from '@/components/common/PageHeader';
-import StatCard from '@/components/common/StatCard';
 import StatusChip from '@/components/common/StatusChip';
 import UserAvatar from '@/components/common/UserAvatar';
+import FormSelect from '@/components/common/FormSelect';
 import DataTable from '@/components/tables/DataTable';
-import FormDialog from '@/components/dialogs/FormDialog';
 import ConfirmDialog from '@/components/dialogs/ConfirmDialog';
-import FormTextField from '@/components/forms/FormTextField';
-import FormSelect from '@/components/forms/FormSelect';
-import { dummyUsers } from '@/data/users';
-import { User, UserRole, UserStatus } from '@/types';
-import { userSchema, UserFormData } from '@/utils/validations';
-import { formatDate, formatCurrency } from '@/utils';
+import { usersService } from '@/services/users.service';
+import { useApiData } from '@/hooks/useApiData';
+import { useToast } from '@/context/ToastContext';
+import { UserStatus, type AdminUser } from '@/types/api';
+import { formatDate, formatPhone } from '@/utils';
+import { resolveMediaUrl } from '@/utils/media';
 
-const roleOptions = Object.values(UserRole).map((r) => ({
-  value: r,
-  label: r.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()),
-}));
+type UserAction = 'block' | 'unblock' | 'verify' | 'delete';
 
-const statusOptions = Object.values(UserStatus).map((s) => ({
-  value: s,
-  label: s.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()),
-}));
+const STATUS_OPTIONS = [
+  { value: '', label: 'All statuses' },
+  { value: UserStatus.ACTIVE, label: 'Active' },
+  { value: UserStatus.BLOCKED, label: 'Blocked' },
+  { value: UserStatus.PENDING, label: 'Pending' },
+  { value: UserStatus.DELETED, label: 'Deleted' },
+];
 
 export default function UsersPage() {
   const router = useRouter();
-  const [users, setUsers] = useState<User[]>(dummyUsers);
+  const { showToast } = useToast();
+
+  const [page, setPage] = useState(0);
+  const [pageSize, setPageSize] = useState(10);
   const [search, setSearch] = useState('');
-  const [dialogOpen, setDialogOpen] = useState(false);
-  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
-  const [selectedUser, setSelectedUser] = useState<User | null>(null);
-  const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' as 'success' | 'error' });
+  const [status, setStatus] = useState('');
+  const [pending, setPending] = useState<{ action: UserAction; user: AdminUser } | null>(null);
+  const [actionLoading, setActionLoading] = useState(false);
 
-  const { control, handleSubmit, reset, formState: { errors } } = useForm<UserFormData>({
-    resolver: zodResolver(userSchema),
-    defaultValues: { firstName: '', lastName: '', email: '', phone: '', role: '' },
-  });
+  const users = useApiData(
+    (signal) => usersService.list({ page: page + 1, limit: pageSize, search, status }, signal),
+    [page, pageSize, search, status],
+  );
 
-  const filtered = useMemo(() => {
-    if (!search) return users;
-    const q = search.toLowerCase();
-    return users.filter(
-      (u) =>
-        `${u.firstName} ${u.lastName}`.toLowerCase().includes(q) ||
-        u.email.toLowerCase().includes(q) ||
-        u.phone.includes(q) ||
-        u.city.toLowerCase().includes(q)
-    );
-  }, [users, search]);
+  const displayName = (user: AdminUser) =>
+    `${user.firstName ?? ''} ${user.lastName ?? ''}`.trim() || formatPhone(user.mobile, user.countryCode);
 
-  const stats = useMemo(() => {
-    const now = dayjs();
-    return {
-      total: users.length,
-      active: users.filter((u) => u.status === UserStatus.ACTIVE).length,
-      suspended: users.filter((u) => u.status === UserStatus.SUSPENDED).length,
-      newThisMonth: users.filter((u) => dayjs(u.createdAt).isSame(now, 'month')).length,
-    };
-  }, [users]);
-
-  const handleOpenCreate = () => {
-    setSelectedUser(null);
-    reset({ firstName: '', lastName: '', email: '', phone: '', role: '' });
-    setDialogOpen(true);
-  };
-
-  const handleOpenEdit = (user: User) => {
-    setSelectedUser(user);
-    reset({
-      firstName: user.firstName,
-      lastName: user.lastName,
-      email: user.email,
-      phone: user.phone,
-      role: user.role,
-    });
-    setDialogOpen(true);
-  };
-
-  const handleOpenDelete = (user: User) => {
-    setSelectedUser(user);
-    setDeleteDialogOpen(true);
-  };
-
-  const handleFormSubmit = (data: UserFormData) => {
-    if (selectedUser) {
-      setUsers((prev) =>
-        prev.map((u) =>
-          u.id === selectedUser.id
-            ? { ...u, ...data, role: data.role as UserRole }
-            : u
-        )
-      );
-    } else {
-      const newUser: User = {
-        id: `usr_${Date.now()}`,
-        firstName: data.firstName,
-        lastName: data.lastName,
-        email: data.email,
-        phone: data.phone,
-        avatar: '',
-        role: data.role as UserRole,
-        status: UserStatus.ACTIVE,
-        emailVerified: false,
-        lastLoginAt: new Date().toISOString(),
-        createdAt: new Date().toISOString(),
-        city: '',
-        totalBookings: 0,
-        totalSpent: 0,
-      };
-      setUsers((prev) => [newUser, ...prev]);
-    }
-    setDialogOpen(false);
-    setSnackbar({ open: true, message: 'User saved successfully', severity: 'success' });
-  };
-
-  const handleDeleteConfirm = () => {
-    if (selectedUser) {
-      setUsers((prev) => prev.filter((u) => u.id !== selectedUser.id));
-      setDeleteDialogOpen(false);
-      setSnackbar({ open: true, message: 'User deleted successfully', severity: 'success' });
+  const confirmMessage = () => {
+    if (!pending) return '';
+    const name = displayName(pending.user);
+    switch (pending.action) {
+      case 'block':
+        return `Block ${name}? The customer will not be able to sign in until unblocked.`;
+      case 'unblock':
+        return `Unblock ${name}?`;
+      case 'verify':
+        return `Mark ${name} as verified (mobile + email)?`;
+      case 'delete':
+        return `Delete ${name}? The backend performs a soft delete.`;
+      default:
+        return '';
     }
   };
 
-  const columns: GridColDef[] = [
-    {
-      field: 'name',
-      headerName: 'User',
-      flex: 1.5,
-      minWidth: 200,
-      renderCell: ({ row }) => (
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
-          <UserAvatar firstName={row.firstName} lastName={row.lastName} avatar={row.avatar} size={36} />
-          <Box>
-            <Typography variant="body2" fontWeight={600}>
-              {row.firstName} {row.lastName}
-            </Typography>
-            <Typography variant="caption" color="text.secondary">
-              {row.id}
-            </Typography>
-          </Box>
-        </Box>
-      ),
-    },
-    { field: 'email', headerName: 'Email', flex: 1.2, minWidth: 180 },
-    { field: 'phone', headerName: 'Phone', flex: 1, minWidth: 140 },
-    {
-      field: 'role',
-      headerName: 'Role',
-      flex: 0.8,
-      minWidth: 130,
-      renderCell: ({ row }) => (
-        <StatusChip status={row.role.replace(/_/g, ' ')} />
-      ),
-    },
-    {
-      field: 'status',
-      headerName: 'Status',
-      flex: 0.7,
-      minWidth: 100,
-      renderCell: ({ row }) => <StatusChip status={row.status} />,
-    },
-    { field: 'city', headerName: 'City', flex: 0.8, minWidth: 110 },
-    {
-      field: 'totalBookings',
-      headerName: 'Bookings',
-      flex: 0.6,
-      minWidth: 80,
-      type: 'number',
-    },
-    {
-      field: 'totalSpent',
-      headerName: 'Spent',
-      flex: 0.8,
-      minWidth: 100,
-      renderCell: ({ row }) => formatCurrency(row.totalSpent),
-    },
-    {
-      field: 'createdAt',
-      headerName: 'Joined',
-      flex: 0.8,
-      minWidth: 110,
-      renderCell: ({ row }) => formatDate(row.createdAt),
-    },
-    {
-      field: 'actions',
-      headerName: 'Actions',
-      flex: 0.8,
-      minWidth: 120,
-      sortable: false,
-      renderCell: ({ row }) => (
-        <Box sx={{ display: 'flex', gap: 0.5 }}>
-          <Tooltip title="View">
-            <IconButton size="small" onClick={() => router.push(`/users/${row.id}`)}>
-              <Visibility fontSize="small" />
-            </IconButton>
-          </Tooltip>
-          <Tooltip title="Edit">
-            <IconButton size="small" color="primary" onClick={() => handleOpenEdit(row)}>
-              <Edit fontSize="small" />
-            </IconButton>
-          </Tooltip>
-          <Tooltip title="Delete">
-            <IconButton size="small" color="error" onClick={() => handleOpenDelete(row)}>
-              <Delete fontSize="small" />
-            </IconButton>
-          </Tooltip>
-        </Box>
-      ),
-    },
-  ];
+  const runAction = async () => {
+    if (!pending) return;
+    const { action, user } = pending;
+    setActionLoading(true);
+    try {
+      if (action === 'block') await usersService.block(user.id);
+      if (action === 'unblock') await usersService.unblock(user.id);
+      if (action === 'verify') await usersService.verify(user.id);
+      if (action === 'delete') await usersService.remove(user.id);
+      showToast('Customer updated successfully', 'success');
+      setPending(null);
+      users.refetch();
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : 'Action failed', 'error');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const columns = useMemo<GridColDef[]>(
+    () => [
+      {
+        field: 'name',
+        headerName: 'Customer',
+        flex: 1.4,
+        minWidth: 220,
+        sortable: false,
+        renderCell: (params) => {
+          const user = params.row;
+          return (
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, height: '100%' }}>
+              <UserAvatar
+                firstName={user.firstName ?? ''}
+                lastName={user.lastName ?? ''}
+                avatar={resolveMediaUrl(user.profileImage) ?? undefined}
+                size={36}
+              />
+              <Box>
+                <Typography variant="body2" fontWeight={600} noWrap>
+                  {displayName(user)}
+                </Typography>
+                <Typography variant="caption" color="text.secondary" noWrap>
+                  {user.email ?? formatPhone(user.mobile, user.countryCode)}
+                </Typography>
+              </Box>
+            </Box>
+          );
+        },
+      },
+      {
+        field: 'status',
+        headerName: 'Status',
+        flex: 0.6,
+        minWidth: 110,
+        sortable: false,
+        renderCell: (params) => <StatusChip status={params.value as string} />,
+      },
+      {
+        field: 'isMobileVerified',
+        headerName: 'Verification',
+        flex: 0.7,
+        minWidth: 120,
+        sortable: false,
+        renderCell: (params) => (
+          <StatusChip
+            status={params.value ? 'ACTIVE' : 'PENDING'}
+            label={params.value ? 'Verified' : 'Unverified'}
+          />
+        ),
+      },
+      {
+        field: 'createdAt',
+        headerName: 'Joined',
+        flex: 0.7,
+        minWidth: 120,
+        sortable: false,
+        valueGetter: (value: string) => formatDate(value),
+      },
+      {
+        field: 'actions',
+        headerName: 'Actions',
+        flex: 0.6,
+        minWidth: 160,
+        sortable: false,
+        filterable: false,
+        renderCell: (params) => {
+          const user = params.row;
+          const isBlocked = user.status === UserStatus.BLOCKED;
+          const isDeleted = user.status === UserStatus.DELETED;
+          return (
+            <Stack direction="row" spacing={0.5} alignItems="center">
+              <Tooltip title={isBlocked ? 'Unblock customer' : 'Block customer'}>
+                <IconButton
+                  size="small"
+                  color={isBlocked ? 'success' : 'warning'}
+                  disabled={isDeleted}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    setPending({ action: isBlocked ? 'unblock' : 'block', user });
+                  }}
+                >
+                  {isBlocked ? <CheckCircle fontSize="small" /> : <Block fontSize="small" />}
+                </IconButton>
+              </Tooltip>
+              <Tooltip title="Mark as verified">
+                <IconButton
+                  size="small"
+                  color="info"
+                  disabled={user.isMobileVerified && user.isEmailVerified}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    setPending({ action: 'verify', user });
+                  }}
+                >
+                  <VerifiedUser fontSize="small" />
+                </IconButton>
+              </Tooltip>
+              <Tooltip title="Delete customer">
+                <IconButton
+                  size="small"
+                  color="error"
+                  disabled={isDeleted}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    setPending({ action: 'delete', user });
+                  }}
+                >
+                  <DeleteOutline fontSize="small" />
+                </IconButton>
+              </Tooltip>
+            </Stack>
+          );
+        },
+      },
+    ],
+     
+    [],
+  );
 
   return (
     <AdminLayout>
       <PageHeader
-        title="Users"
-        subtitle="Manage all platform users"
+        title="Customers"
+        subtitle="Registered customer accounts"
+        breadcrumbs={[{ label: 'Dashboard', path: '/dashboard' }, { label: 'Customers' }]}
         action={
-          <Button variant="contained" startIcon={<PersonAdd />} onClick={handleOpenCreate}>
-            Add User
+          <Button startIcon={<Refresh />} onClick={() => users.refetch()}>
+            Refresh
           </Button>
         }
       />
 
-      <Grid container spacing={3} sx={{ mb: 4 }}>
-        <Grid size={{ xs: 12, sm: 6, md: 3 }}>
-          <StatCard title="Total Users" value={stats.total} icon={<People />} color="primary" />
-        </Grid>
-        <Grid size={{ xs: 12, sm: 6, md: 3 }}>
-          <StatCard title="Active" value={stats.active} icon={<HowToReg />} color="success" />
-        </Grid>
-        <Grid size={{ xs: 12, sm: 6, md: 3 }}>
-          <StatCard title="Suspended" value={stats.suspended} icon={<Block />} color="error" />
-        </Grid>
-        <Grid size={{ xs: 12, sm: 6, md: 3 }}>
-          <StatCard title="New This Month" value={stats.newThisMonth} icon={<PersonOutline />} color="info" />
-        </Grid>
-      </Grid>
-
       <DataTable
-        rows={filtered}
+        rows={users.data?.rows ?? []}
         columns={columns}
-        checkboxSelection
-        onSearch={setSearch}
-        searchPlaceholder="Search users by name, email, phone, city..."
-        onRowClick={(row) => router.push(`/users/${row.id}`)}
-        emptyMessage="No users found matching your search."
+        loading={users.loading}
+        error={users.error}
+        onRetry={users.refetch}
+        totalRows={users.data?.total ?? 0}
+        page={page}
+        pageSize={pageSize}
+        onPageChange={setPage}
+        onPageSizeChange={(size) => {
+          setPageSize(size);
+          setPage(0);
+        }}
+        onSearch={(value) => {
+          setSearch(value);
+          setPage(0);
+        }}
+        searchPlaceholder="Search name, email or mobile"
+        onRowClick={(row: AdminUser) => router.push(`/users/${row.id}`)}
+        toolbar={
+          <Stack direction="row" spacing={1.5} alignItems="center">
+            <Box sx={{ minWidth: 170 }}>
+              <FormSelect
+                label="Status"
+                value={status}
+                onChange={(value) => {
+                  setStatus(value as string);
+                  setPage(0);
+                }}
+                options={STATUS_OPTIONS}
+              />
+            </Box>
+          </Stack>
+        }
+        emptyMessage="No customers match the current filters"
       />
 
-      <FormDialog
-        open={dialogOpen}
-        title={selectedUser ? 'Edit User' : 'Add User'}
-        onClose={() => setDialogOpen(false)}
-        onSubmit={handleSubmit(handleFormSubmit)}
-        submitText={selectedUser ? 'Update' : 'Create'}
-        maxWidth="sm"
-      >
-        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2.5, pt: 1 }}>
-          <Box sx={{ display: 'flex', gap: 2 }}>
-            <FormTextField name="firstName" control={control as Control<any>} label="First Name" required />
-            <FormTextField name="lastName" control={control as Control<any>} label="Last Name" required />
-          </Box>
-          <FormTextField name="email" control={control as Control<any>} label="Email" type="email" required />
-          <FormTextField name="phone" control={control as Control<any>} label="Phone" required />
-          <FormSelect name="role" control={control as Control<any>} label="Role" options={roleOptions} required />
-        </Box>
-      </FormDialog>
+      {users.data && users.data.total > 0 && (
+        <Alert severity="info" sx={{ mt: 2 }}>
+          Showing {users.data.rows.length} of {users.data.total} customers.
+        </Alert>
+      )}
 
       <ConfirmDialog
-        open={deleteDialogOpen}
-        title="Delete User"
-        message={`Are you sure you want to delete ${selectedUser?.firstName} ${selectedUser?.lastName}? This action cannot be undone.`}
-        confirmText="Delete"
-        onConfirm={handleDeleteConfirm}
-        onCancel={() => setDeleteDialogOpen(false)}
-        severity="error"
+        open={Boolean(pending)}
+        title="Please confirm"
+        message={confirmMessage()}
+        severity={pending?.action === 'block' || pending?.action === 'delete' ? 'error' : 'warning'}
+        loading={actionLoading}
+        onCancel={() => setPending(null)}
+        onConfirm={runAction}
       />
-
-      <Snackbar
-        open={snackbar.open}
-        autoHideDuration={3000}
-        onClose={() => setSnackbar((s) => ({ ...s, open: false }))}
-        anchorOrigin={{ vertical: 'top', horizontal: 'right' }}
-      >
-        <Alert
-          onClose={() => setSnackbar((s) => ({ ...s, open: false }))}
-          severity={snackbar.severity}
-          variant="filled"
-        >
-          {snackbar.message}
-        </Alert>
-      </Snackbar>
     </AdminLayout>
   );
 }

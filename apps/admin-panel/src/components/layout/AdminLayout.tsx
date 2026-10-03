@@ -16,7 +16,6 @@ import {
   Menu,
   MenuItem,
   Divider,
-  Badge,
   Tooltip,
   useMediaQuery,
   useTheme,
@@ -28,30 +27,26 @@ import {
   People,
   Engineering,
   RateReview,
-  Payment,
-  Settings,
   Notifications,
   Logout,
   Inventory,
   Category,
-  Campaign,
   CardGiftcard,
-  LocalOffer,
   SupportAgent,
-  Article,
-  Shield,
-  AccountBalanceWallet,
-  Assessment,
   Map,
-  Gavel,
-  SmartToy,
-  TrendingUp,
+  AccountCircle,
 } from '@mui/icons-material';
 import NextLink from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
+import AuthGuard from '@/components/auth/AuthGuard';
+import { useAuth } from '@/context/AuthContext';
 
 const DRAWER_WIDTH = 260;
 
+/**
+ * Only modules backed by a mounted backend endpoint are listed. Everything else
+ * would render mock data that no admin action can act on.
+ */
 const menuItems = [
   { label: 'Dashboard', path: '/dashboard', icon: <Dashboard /> },
   { label: 'Bookings', path: '/bookings', icon: <CalendarMonth /> },
@@ -60,27 +55,13 @@ const menuItems = [
   { label: 'Services', path: '/services', icon: <Inventory /> },
   { label: 'Categories', path: '/categories', icon: <Category /> },
   { label: 'Reviews', path: '/reviews', icon: <RateReview /> },
-  { label: 'Payments', path: '/payments', icon: <Payment /> },
-  { label: 'Wallet', path: '/wallet', icon: <AccountBalanceWallet /> },
-  { label: 'Transactions', path: '/transactions', icon: <TrendingUp /> },
-  { label: 'Packages', path: '/packages', icon: <CardGiftcard /> },
-  { label: 'Coupons', path: '/coupons', icon: <LocalOffer /> },
-  { label: 'Campaigns', path: '/marketing', icon: <Campaign /> },
   { label: 'Notifications', path: '/notifications', icon: <Notifications /> },
   { label: 'Support', path: '/support', icon: <SupportAgent /> },
-  { divider: true },
-  { label: 'CMS', path: '/cms', icon: <Article /> },
-  { label: 'Blogs', path: '/blogs', icon: <Article /> },
-  { label: 'Roles', path: '/roles', icon: <Shield /> },
-  { label: 'Audit Logs', path: '/audit-logs', icon: <Gavel /> },
-  { label: 'Reports', path: '/reports', icon: <Assessment /> },
-  { label: 'Analytics', path: '/analytics', icon: <Assessment /> },
-  { label: 'AI Dashboard', path: '/ai-dashboard', icon: <SmartToy /> },
   { divider: true },
   { label: 'Cities', path: '/cities', icon: <Map /> },
   { label: 'Areas', path: '/areas', icon: <Map /> },
   { label: 'Sub-Services', path: '/sub-services', icon: <Inventory /> },
-  { label: 'Settings', path: '/settings', icon: <Settings /> },
+  { label: 'Packages', path: '/packages', icon: <CardGiftcard /> },
 ];
 
 interface AdminLayoutProps {
@@ -90,9 +71,11 @@ interface AdminLayoutProps {
 export default function AdminLayout({ children }: AdminLayoutProps) {
   const theme = useTheme();
   const pathname = usePathname();
+  const router = useRouter();
   const isMobile = useMediaQuery(theme.breakpoints.down('md'));
   const [mobileOpen, setMobileOpen] = useState(false);
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
+  const { user, logout } = useAuth();
 
   const handleDrawerToggle = () => {
     setMobileOpen(!mobileOpen);
@@ -105,6 +88,15 @@ export default function AdminLayout({ children }: AdminLayoutProps) {
   const handleProfileMenuClose = () => {
     setAnchorEl(null);
   };
+
+  const handleLogout = async () => {
+    handleProfileMenuClose();
+    await logout();
+    router.replace('/login');
+  };
+
+  const adminName = [user?.firstName, user?.lastName].filter(Boolean).join(' ') || user?.mobile || 'Admin';
+  const adminInitials = (user?.firstName?.[0] ?? 'A').toUpperCase();
 
   const drawer = (
     <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
@@ -182,14 +174,14 @@ export default function AdminLayout({ children }: AdminLayoutProps) {
           <Box sx={{ flex: 1 }} />
           <Tooltip title="Notifications">
             <IconButton color="inherit" component={NextLink} href="/notifications">
-              <Badge badgeContent={4} color="error">
-                <Notifications />
-              </Badge>
+              <Notifications />
             </IconButton>
           </Tooltip>
           <Tooltip title="Account">
             <IconButton onClick={handleProfileMenuOpen} sx={{ ml: 1 }}>
-              <Avatar sx={{ width: 36, height: 36, bgcolor: 'primary.main' }}>A</Avatar>
+              <Avatar sx={{ width: 36, height: 36, bgcolor: 'primary.main' }}>
+                {adminInitials}
+              </Avatar>
             </IconButton>
           </Tooltip>
           <Menu
@@ -199,10 +191,14 @@ export default function AdminLayout({ children }: AdminLayoutProps) {
             transformOrigin={{ horizontal: 'right', vertical: 'top' }}
             anchorOrigin={{ horizontal: 'right', vertical: 'bottom' }}
           >
-            <MenuItem onClick={handleProfileMenuClose}>Profile</MenuItem>
-            <MenuItem onClick={handleProfileMenuClose}>Settings</MenuItem>
+            <MenuItem disabled>
+              <ListItemIcon>
+                <AccountCircle fontSize="small" />
+              </ListItemIcon>
+              {adminName}
+            </MenuItem>
             <Divider />
-            <MenuItem onClick={handleProfileMenuClose}>
+            <MenuItem onClick={handleLogout}>
               <ListItemIcon>
                 <Logout fontSize="small" />
               </ListItemIcon>
@@ -255,7 +251,7 @@ export default function AdminLayout({ children }: AdminLayoutProps) {
           minHeight: 'calc(100vh - 64px)',
         }}
       >
-        {children}
+        <AuthGuard>{children}</AuthGuard>
       </Box>
     </Box></>
   );

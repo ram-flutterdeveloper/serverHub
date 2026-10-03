@@ -79,6 +79,7 @@ export default function RolesPage() {
       setSnackbar({ open: true, message: 'Role updated successfully', severity: 'success' });
     } else {
       const newRole: Role = {
+        // eslint-disable-next-line react-hooks/purity -- submit handler, not render
         id: `role_${Date.now()}`,
         name: data.name,
         description: data.description,
@@ -269,8 +270,8 @@ export default function RolesPage() {
         submitText={editingRole ? 'Update' : 'Create'}
       >
         <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2.5, pt: 1 }}>
-          <FormTextField name="name" control={control as Control<any>} label="Role Name" required />
-          <FormTextField name="description" control={control as Control<any>} label="Description" multiline rows={3} required />
+          <FormTextField name="name" control={control as Control<RoleFormData>} label="Role Name" required />
+          <FormTextField name="description" control={control as Control<RoleFormData>} label="Description" multiline rows={3} required />
         </Box>
       </FormDialog>
 

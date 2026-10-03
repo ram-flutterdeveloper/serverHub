@@ -266,12 +266,12 @@ export default function CMSPage() {
         maxWidth="md"
       >
         <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2.5, pt: 1 }}>
-          <FormTextField name="title" control={control as Control<any>} label="Title" required />
-          <FormTextField name="slug" control={control as Control<any>} label="Slug" required />
-          <FormTextField name="excerpt" control={control as Control<any>} label="Excerpt" required />
+          <FormTextField name="title" control={control as Control<PageFormData>} label="Title" required />
+          <FormTextField name="slug" control={control as Control<PageFormData>} label="Slug" required />
+          <FormTextField name="excerpt" control={control as Control<PageFormData>} label="Excerpt" required />
           <FormTextField
             name="content"
-            control={control as Control<any>}
+            control={control as Control<PageFormData>}
             label="Content"
             multiline
             rows={6}

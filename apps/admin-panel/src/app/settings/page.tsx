@@ -191,26 +191,26 @@ export default function SettingsPage() {
               <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2.5 }}>
                 <FormTextField
                   name="siteName"
-                  control={generalForm.control as Control<any>}
+                  control={generalForm.control as Control<SettingsFormData>}
                   label="Site Name"
                   required
                 />
                 <FormTextField
                   name="contactEmail"
-                  control={generalForm.control as Control<any>}
+                  control={generalForm.control as Control<SettingsFormData>}
                   label="Contact Email"
                   type="email"
                   required
                 />
                 <FormTextField
                   name="contactPhone"
-                  control={generalForm.control as Control<any>}
+                  control={generalForm.control as Control<SettingsFormData>}
                   label="Contact Phone"
                   required
                 />
                 <FormTextField
                   name="siteDescription"
-                  control={generalForm.control as Control<any>}
+                  control={generalForm.control as Control<SettingsFormData>}
                   label="Site Description"
                   multiline
                   rows={3}
@@ -218,7 +218,7 @@ export default function SettingsPage() {
                 />
                 <FormTextField
                   name="address"
-                  control={generalForm.control as Control<any>}
+                  control={generalForm.control as Control<SettingsFormData>}
                   label="Address"
                   multiline
                   rows={2}
@@ -226,20 +226,20 @@ export default function SettingsPage() {
                 <Box sx={{ display: 'flex', gap: 2 }}>
                   <FormSelect
                     name="currency"
-                    control={generalForm.control as Control<any>}
+                    control={generalForm.control as Control<SettingsFormData>}
                     label="Currency"
                     options={currencyOptions}
                   />
                   <FormSelect
                     name="timezone"
-                    control={generalForm.control as Control<any>}
+                    control={generalForm.control as Control<SettingsFormData>}
                     label="Timezone"
                     options={timezoneOptions}
                   />
                 </Box>
                 <FormSwitch
                   name="maintenanceMode"
-                  control={generalForm.control as Control<any>}
+                  control={generalForm.control as Control<SettingsFormData>}
                   label="Maintenance Mode"
                   description="Enable maintenance mode to prevent user access"
                 />

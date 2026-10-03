@@ -22,11 +22,10 @@ export default function SearchField({
   const [internalValue, setInternalValue] = useState(value);
 
   useEffect(() => {
-    setInternalValue(value);
-  }, [value]);
-
-  useEffect(() => {
+    // One debounced effect keeps the box in sync with a controlled `value` and
+    // avoids notifying the parent on every keystroke.
     const timer = setTimeout(() => {
+      setInternalValue(value);
       if (internalValue !== value) {
         onChange(internalValue);
       }

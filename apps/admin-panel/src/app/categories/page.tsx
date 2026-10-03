@@ -1,294 +1,347 @@
 'use client';
 
-import { useState } from 'react';
-import {
-  Grid,
-  Card,
-  CardContent,
-  CardActions,
-  Typography,
-  IconButton,
-  Button,
-  Box,
-  Switch,
-  Tooltip,
-  Avatar,
-} from '@mui/material';
-import {
-  Add as AddIcon,
-  Edit as EditIcon,
-  Delete as DeleteIcon,
-  Category as CategoryIcon,
-} from '@mui/icons-material';
-import { useForm } from 'react-hook-form';
-import { zodResolver } from '@hookform/resolvers/zod';
+import React, { useMemo, useState } from 'react';
+import { Alert, Box, Button, Stack, Typography } from '@mui/material';
+import { Add, DeleteOutline, Edit, Refresh } from '@mui/icons-material';
+import { useRouter } from 'next/navigation';
+import type { GridColDef } from '@mui/x-data-grid';
+
 import AdminLayout from '@/components/layout/AdminLayout';
 import PageHeader from '@/components/common/PageHeader';
 import StatusChip from '@/components/common/StatusChip';
-import StatCard from '@/components/common/StatCard';
-import ConfirmDialog from '@/components/common/ConfirmDialog';
-import FormDialog from '@/components/common/FormDialog';
-import FormTextField from '@/components/common/FormTextField';
-import { categorySchema } from '@/utils/validations';
-import { dummyCategories } from '@/data/categories';
-import type { Category } from '@/types';
+import ImageCell from '@/components/common/ImageCell';
+import ImageUploadField from '@/components/common/ImageUploadField';
+import FormSelect from '@/components/common/FormSelect';
+import FormInput from '@/components/common/FormInput';
+import FormSwitchField from '@/components/common/FormSwitchField';
+import FormDialog from '@/components/dialogs/FormDialog';
+import ConfirmDialog from '@/components/dialogs/ConfirmDialog';
+import DataTable from '@/components/tables/DataTable';
+import { categoriesService } from '@/services/categories.service';
+import { useApiData } from '@/hooks/useApiData';
+import { useToast } from '@/context/ToastContext';
+import { RecordStatus, type Category, type CategoryPayload } from '@/types/api';
+import { formatDate } from '@/utils';
+import { resolveMediaUrl } from '@/utils/media';
 
-type CategoryFormData = {
-  name: string;
-  description?: string;
-  icon?: string;
+const STATUS_OPTIONS = [
+  { value: RecordStatus.ACTIVE, label: 'Active' },
+  { value: RecordStatus.INACTIVE, label: 'Inactive' },
+];
+
+const emptyForm: Omit<CategoryPayload, 'image'> = {
+  name: '',
+  description: '',
+  sortOrder: 0,
+  isFeatured: false,
+  status: RecordStatus.ACTIVE,
 };
 
 export default function CategoriesPage() {
-  const [categories, setCategories] = useState<Category[]>(dummyCategories);
-  const [addOpen, setAddOpen] = useState(false);
-  const [editOpen, setEditOpen] = useState(false);
-  const [deleteOpen, setDeleteOpen] = useState(false);
-  const [selectedCategory, setSelectedCategory] = useState<Category | null>(null);
+  const router = useRouter();
+  const { showToast } = useToast();
 
-  const addForm = useForm<CategoryFormData>({
-    resolver: zodResolver(categorySchema),
-    defaultValues: { name: '', description: '', icon: '' },
-  });
+  const [search, setSearch] = useState('');
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [editing, setEditing] = useState<Category | null>(null);
+  const [form, setForm] = useState(emptyForm);
+  const [image, setImage] = useState<File | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<Category | null>(null);
 
-  const editForm = useForm<CategoryFormData>({
-    resolver: zodResolver(categorySchema),
-    defaultValues: { name: '', description: '', icon: '' },
-  });
+  const categories = useApiData((signal) => categoriesService.list(signal), []);
 
-  const totalCategories = categories.length;
-  const activeCategories = categories.filter((c) => c.isActive).length;
-  const inactiveCategories = totalCategories - activeCategories;
-
-  const handleAdd = (data: CategoryFormData) => {
-    const newCategory: Category = {
-      id: String(categories.length + 1),
-      name: data.name,
-      slug: data.name.toLowerCase().replace(/\s+/g, '-'),
-      description: data.description || '',
-      icon: data.icon || '',
-      image: '',
-      isActive: true,
-      serviceCount: 0,
-      subcategoryCount: 0,
-      createdAt: new Date().toISOString(),
-    };
-    setCategories((prev) => [...prev, newCategory]);
-    setAddOpen(false);
-    addForm.reset();
-  };
-
-  const handleEdit = (data: CategoryFormData) => {
-    if (!selectedCategory) return;
-    setCategories((prev) =>
-      prev.map((c) =>
-        c.id === selectedCategory.id
-          ? { ...c, name: data.name, description: data.description || '', icon: data.icon || '' }
-          : c
-      )
+  const rows = useMemo(() => {
+    const list = categories.data ?? [];
+    const term = search.trim().toLowerCase();
+    if (!term) return list;
+    return list.filter((category) =>
+      `${category.name} ${category.slug} ${category.description ?? ''}`
+        .toLowerCase()
+        .includes(term),
     );
-    setEditOpen(false);
-    editForm.reset();
-    setSelectedCategory(null);
-  };
+  }, [categories.data, search]);
 
-  const handleDelete = () => {
-    if (!selectedCategory) return;
-    setCategories((prev) => prev.filter((c) => c.id !== selectedCategory.id));
-    setDeleteOpen(false);
-    setSelectedCategory(null);
-  };
-
-  const handleToggleActive = (id: string) => {
-    setCategories((prev) =>
-      prev.map((c) => (c.id === id ? { ...c, isActive: !c.isActive } : c))
-    );
+  const openCreate = () => {
+    setEditing(null);
+    setForm(emptyForm);
+    setImage(null);
+    setDialogOpen(true);
   };
 
   const openEdit = (category: Category) => {
-    setSelectedCategory(category);
-    editForm.reset({
+    setEditing(category);
+    setForm({
       name: category.name,
-      description: category.description,
-      icon: category.icon,
+      description: category.description ?? '',
+      sortOrder: category.sortOrder ?? 0,
+      isFeatured: category.isFeatured,
+      status: category.status,
     });
-    setEditOpen(true);
+    setImage(null);
+    setDialogOpen(true);
   };
 
-  const openDelete = (category: Category) => {
-    setSelectedCategory(category);
-    setDeleteOpen(true);
+  const handleSubmit = async () => {
+    if (!form.name.trim()) {
+      showToast('Category name is required', 'error');
+      return;
+    }
+    setSaving(true);
+    try {
+      const payload: CategoryPayload = { ...form, image };
+      if (editing) {
+        await categoriesService.update(editing.id, payload);
+        showToast('Category updated successfully', 'success');
+      } else {
+        await categoriesService.create(payload);
+        showToast('Category created successfully', 'success');
+      }
+      setDialogOpen(false);
+      categories.refetch();
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : 'Unable to save category', 'error');
+    } finally {
+      setSaving(false);
+    }
   };
+
+  const handleDelete = async () => {
+    if (!deleteTarget) return;
+    setSaving(true);
+    try {
+      await categoriesService.remove(deleteTarget.id);
+      showToast('Category deleted successfully', 'success');
+      setDeleteTarget(null);
+      categories.refetch();
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : 'Unable to delete category', 'error');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const columns = useMemo<GridColDef[]>(
+    () => [
+      {
+        field: 'image',
+        headerName: '',
+        width: 64,
+        sortable: false,
+        filterable: false,
+        renderCell: (params) => (
+          <ImageCell src={resolveMediaUrl((params.row as Category).image)} alt={params.row.name} />
+        ),
+      },
+      {
+        field: 'name',
+        headerName: 'Category',
+        flex: 1.2,
+        minWidth: 200,
+        sortable: false,
+        renderCell: (params) => {
+          const category = params.row as Category;
+          return (
+            <Box>
+              <Typography variant="body2" fontWeight={600} noWrap>
+                {category.name}
+              </Typography>
+              <Typography variant="caption" color="text.secondary" noWrap>
+                {category.slug}
+              </Typography>
+            </Box>
+          );
+        },
+      },
+      {
+        field: 'description',
+        headerName: 'Description',
+        flex: 1.4,
+        minWidth: 220,
+        sortable: false,
+        valueGetter: (value: string | null) => value ?? '—',
+      },
+      {
+        field: 'status',
+        headerName: 'Status',
+        flex: 0.6,
+        minWidth: 110,
+        sortable: false,
+        renderCell: (params) => <StatusChip status={params.value as string} />,
+      },
+      {
+        field: 'isFeatured',
+        headerName: 'Featured',
+        flex: 0.5,
+        minWidth: 100,
+        sortable: false,
+        renderCell: (params) => (
+          <StatusChip
+            status={params.value ? 'ACTIVE' : 'INACTIVE'}
+            label={params.value ? 'Featured' : 'Standard'}
+          />
+        ),
+      },
+      {
+        field: 'sortOrder',
+        headerName: 'Order',
+        flex: 0.4,
+        minWidth: 90,
+        sortable: false,
+      },
+      {
+        field: 'createdAt',
+        headerName: 'Created',
+        flex: 0.7,
+        minWidth: 130,
+        sortable: false,
+        valueGetter: (value: string) => formatDate(value),
+      },
+      {
+        field: 'actions',
+        headerName: 'Actions',
+        flex: 0.5,
+        minWidth: 120,
+        sortable: false,
+        filterable: false,
+        renderCell: (params) => {
+          const category = params.row as Category;
+          return (
+            <Stack direction="row" spacing={0.5}>
+              <Button
+                size="small"
+                startIcon={<Edit />}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  openEdit(category);
+                }}
+              >
+                Edit
+              </Button>
+              <Button
+                size="small"
+                color="error"
+                startIcon={<DeleteOutline />}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  setDeleteTarget(category);
+                }}
+              >
+                Delete
+              </Button>
+            </Stack>
+          );
+        },
+      },
+    ],
+     
+    [],
+  );
 
   return (
     <AdminLayout>
       <PageHeader
         title="Categories"
-        description="Manage service categories"
+        subtitle="Top level catalogue categories"
+        breadcrumbs={[{ label: 'Dashboard', path: '/dashboard' }, { label: 'Categories' }]}
         action={
-          <Button variant="contained" startIcon={<AddIcon />} onClick={() => setAddOpen(true)}>
-            Add Category
-          </Button>
+          <Stack direction="row" spacing={1}>
+            <Button startIcon={<Refresh />} onClick={categories.refetch}>
+              Refresh
+            </Button>
+            <Button variant="contained" startIcon={<Add />} onClick={openCreate}>
+              Add category
+            </Button>
+          </Stack>
         }
       />
 
-      <Grid container spacing={3} sx={{ mb: 4 }}>
-        <Grid size={{ xs: 12, sm: 4 }}>
-          <StatCard title="Total Categories" value={totalCategories} icon={<CategoryIcon />} />
-        </Grid>
-        <Grid size={{ xs: 12, sm: 4 }}>
-          <StatCard title="Active" value={activeCategories} icon={<CategoryIcon />} color="success" />
-        </Grid>
-        <Grid size={{ xs: 12, sm: 4 }}>
-          <StatCard title="Inactive" value={inactiveCategories} icon={<CategoryIcon />} color="error" />
-        </Grid>
-      </Grid>
+      <DataTable
+        rows={rows}
+        columns={columns}
+        loading={categories.loading}
+        error={categories.error}
+        onRetry={categories.refetch}
+        clientPagination
+        pageSize={25}
+        onSearch={setSearch}
+        searchPlaceholder="Search categories"
+        onRowClick={(row: Category) => router.push(`/categories/${row.id}`)}
+        emptyMessage="No categories yet"
+      />
 
-      <Grid container spacing={3}>
-        {categories.map((category) => (
-          <Grid key={category.id} size={{ xs: 12, sm: 6, md: 4, lg: 3 }}>
-            <Card sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
-              <CardContent sx={{ flexGrow: 1 }}>
-                <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
-                  <Avatar
-                    sx={{
-                      bgcolor: 'primary.main',
-                      mr: 2,
-                      width: 48,
-                      height: 48,
-                    }}
-                  >
-                    {category.icon ? category.icon.charAt(0).toUpperCase() : <CategoryIcon />}
-                  </Avatar>
-                  <Box sx={{ flexGrow: 1 }}>
-                    <Typography variant="h6" component="div" noWrap>
-                      {category.name}
-                    </Typography>
-                    <StatusChip status={category.isActive ? 'active' : 'inactive'} />
-                  </Box>
-                </Box>
-
-                <Typography
-                  variant="body2"
-                  color="text.secondary"
-                  sx={{
-                    mb: 2,
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                    display: '-webkit-box',
-                    WebkitLineClamp: 2,
-                    WebkitBoxOrient: 'vertical',
-                  }}
-                >
-                  {category.description || 'No description'}
-                </Typography>
-
-                <Box sx={{ display: 'flex', gap: 2 }}>
-                  <Typography variant="caption" color="text.secondary">
-                    {category.serviceCount} services
-                  </Typography>
-                  <Typography variant="caption" color="text.secondary">
-                    {category.subcategoryCount} subcategories
-                  </Typography>
-                </Box>
-              </CardContent>
-
-              <CardActions sx={{ justifyContent: 'space-between', px: 2, pb: 1.5 }}>
-                <Tooltip title={category.isActive ? 'Deactivate' : 'Activate'}>
-                  <Switch
-                    size="small"
-                    checked={category.isActive}
-                    onChange={() => handleToggleActive(category.id)}
-                    color="primary"
-                  />
-                </Tooltip>
-                <Box>
-                  <Tooltip title="Edit">
-                    <IconButton size="small" onClick={() => openEdit(category)}>
-                      <EditIcon fontSize="small" />
-                    </IconButton>
-                  </Tooltip>
-                  <Tooltip title="Delete">
-                    <IconButton size="small" color="error" onClick={() => openDelete(category)}>
-                      <DeleteIcon fontSize="small" />
-                    </IconButton>
-                  </Tooltip>
-                </Box>
-              </CardActions>
-            </Card>
-          </Grid>
-        ))}
-      </Grid>
+      {categories.data && categories.data.length === 0 && !categories.loading && (
+        <Alert severity="info" sx={{ mt: 2 }}>
+          The catalogue is empty. Create the first category to start adding services.
+        </Alert>
+      )}
 
       <FormDialog
-        open={addOpen}
-        onClose={() => setAddOpen(false)}
-        title="Add Category"
-        onSubmit={addForm.handleSubmit(handleAdd)}
+        open={dialogOpen}
+        title={editing ? 'Edit category' : 'Add category'}
+        onClose={() => setDialogOpen(false)}
+        onSubmit={handleSubmit}
+        submitText={editing ? 'Save changes' : 'Create category'}
+        loading={saving}
       >
-        <FormTextField
-          control={addForm.control}
-          name="name"
-          label="Category Name"
-          required
-        />
-        <FormTextField
-          control={addForm.control}
-          name="description"
-          label="Description"
-          multiline
-          rows={3}
-        />
-        <FormTextField
-          control={addForm.control}
-          name="icon"
-          label="Icon (text)"
-          helperText="A single character or icon name"
-        />
-      </FormDialog>
+        <Stack spacing={2.5} sx={{ pt: 1 }}>
+          <FormInput
+            label="Name"
+            value={form.name}
+            onChange={(value) => setForm((prev) => ({ ...prev, name: value }))}
+            placeholder="Home Cleaning"
+            required
+          />
 
-      <FormDialog
-        open={editOpen}
-        onClose={() => {
-          setEditOpen(false);
-          setSelectedCategory(null);
-          editForm.reset();
-        }}
-        title="Edit Category"
-        onSubmit={editForm.handleSubmit(handleEdit)}
-      >
-        <FormTextField
-          control={editForm.control}
-          name="name"
-          label="Category Name"
-          required
-        />
-        <FormTextField
-          control={editForm.control}
-          name="description"
-          label="Description"
-          multiline
-          rows={3}
-        />
-        <FormTextField
-          control={editForm.control}
-          name="icon"
-          label="Icon (text)"
-          helperText="A single character or icon name"
-        />
+          <FormInput
+            label="Description"
+            value={form.description ?? ''}
+            onChange={(value) => setForm((prev) => ({ ...prev, description: value }))}
+            multiline
+            rows={3}
+          />
+
+          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
+            <FormInput
+              label="Sort order"
+              value={form.sortOrder ?? 0}
+              onChange={(value) => setForm((prev) => ({ ...prev, sortOrder: Number(value) }))}
+              type="number"
+            />
+            <Box sx={{ flex: 1 }}>
+              <FormSelect
+                label="Status"
+                value={form.status}
+                onChange={(value) => setForm((prev) => ({ ...prev, status: value as RecordStatus }))}
+                options={STATUS_OPTIONS}
+              />
+            </Box>
+          </Stack>
+
+          <FormSwitchField
+            label="Featured category"
+            checked={Boolean(form.isFeatured)}
+            onChange={(checked) => setForm((prev) => ({ ...prev, isFeatured: checked }))}
+          />
+
+          <ImageUploadField
+            file={image}
+            onChange={setImage}
+            previewUrl={editing ? resolveMediaUrl(editing.image) : null}
+            label="Category image"
+          />
+        </Stack>
       </FormDialog>
 
       <ConfirmDialog
-        open={deleteOpen}
-        onClose={() => {
-          setDeleteOpen(false);
-          setSelectedCategory(null);
-        }}
-        onConfirm={handleDelete}
-        title="Delete Category"
-        message={`Are you sure you want to delete "${selectedCategory?.name}"? This action cannot be undone.`}
-        confirmText="Delete"
+        open={Boolean(deleteTarget)}
+        title="Delete category"
+        message={`Delete ${deleteTarget?.name ?? ''}? Services linked to this category are not deleted.`}
         severity="error"
+        confirmText="Delete"
+        loading={saving}
+        onCancel={() => setDeleteTarget(null)}
+        onConfirm={handleDelete}
       />
     </AdminLayout>
   );

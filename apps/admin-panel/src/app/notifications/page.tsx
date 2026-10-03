@@ -1,340 +1,197 @@
 'use client';
 
-import React, { useState, useMemo } from 'react';
-import {
-  Box,
-  Grid,
-  Card,
-  CardContent,
-  Typography,
-  Button,
-  IconButton,
-  Tooltip,
-  Snackbar,
-  Alert,
-  Tabs,
-  Tab,
-  Badge,
-  Chip,
-} from '@mui/material';
-import {
-  Add,
-  Notifications as NotificationsIcon,
-  Delete,
-  MarkEmailRead,
-  CalendarMonth,
-  Payment,
-  Settings,
-  Campaign,
-  RateReview,
-  Warning,
-  Circle,
-} from '@mui/icons-material';
-import { useForm, Control } from 'react-hook-form';
-import { z } from 'zod';
+import React, { useMemo, useState } from 'react';
+import { Alert, Box, Button, Card, CardContent, CardHeader, Chip, Stack, Typography } from '@mui/material';
+import { NotificationsActive, Refresh } from '@mui/icons-material';
 
 import AdminLayout from '@/components/layout/AdminLayout';
 import PageHeader from '@/components/common/PageHeader';
-import StatCard from '@/components/common/StatCard';
-import FormDialog from '@/components/dialogs/FormDialog';
-import FormTextField from '@/components/forms/FormTextField';
-import FormSelect from '@/components/forms/FormSelect';
-import ConfirmDialog from '@/components/dialogs/ConfirmDialog';
-import { dummyNotifications } from '@/data/notifications';
-import { Notification, NotificationType } from '@/types';
-import { formatRelativeTime } from '@/utils';
+import FormInput from '@/components/common/FormInput';
+import FormSelect from '@/components/common/FormSelect';
+import {
+  NOTIFICATIONS_MISSING_ENDPOINTS,
+  notificationsService,
+} from '@/services/notifications.service';
+import { useApiData } from '@/hooks/useApiData';
+import { useToast } from '@/context/ToastContext';
+import { useAuth } from '@/context/AuthContext';
+import type { Notification, RegisterDevicePayload } from '@/types/api';
+import { formatDateTime } from '@/utils';
 
-const notificationTypeOptions = Object.values(NotificationType).map((t) => ({
-  value: t,
-  label: t.charAt(0).toUpperCase() + t.slice(1),
-}));
-
-const notificationSchema = z.object({
-  title: z.string().min(1, 'Title is required'),
-  message: z.string().min(1, 'Message is required'),
-  type: z.string().min(1, 'Type is required'),
-});
-
-type NotificationFormValues = z.infer<typeof notificationSchema>;
-
-const typeIconMap: Record<string, React.ReactElement> = {
-  [NotificationType.BOOKING]: <CalendarMonth />,
-  [NotificationType.PAYMENT]: <Payment />,
-  [NotificationType.SYSTEM]: <Settings />,
-  [NotificationType.PROMOTION]: <Campaign />,
-  [NotificationType.REVIEW]: <RateReview />,
-  [NotificationType.ALERT]: <Warning />,
-};
-
-const typeColorMap: Record<string, 'primary' | 'success' | 'info' | 'warning' | 'error'> = {
-  [NotificationType.BOOKING]: 'primary',
-  [NotificationType.PAYMENT]: 'success',
-  [NotificationType.SYSTEM]: 'info',
-  [NotificationType.PROMOTION]: 'warning',
-  [NotificationType.REVIEW]: 'primary',
-  [NotificationType.ALERT]: 'error',
-};
+const PLATFORM_OPTIONS = [
+  { value: 'WEB', label: 'Web' },
+  { value: 'ANDROID', label: 'Android' },
+  { value: 'IOS', label: 'iOS' },
+];
 
 export default function NotificationsPage() {
-  const [notifications, setNotifications] = useState<Notification[]>(dummyNotifications);
-  const [activeTab, setActiveTab] = useState(0);
-  const [sendOpen, setSendOpen] = useState(false);
-  const [deleteTarget, setDeleteTarget] = useState<Notification | null>(null);
-  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
-  const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' as 'success' | 'error' });
+  const { user } = useAuth();
+  const { showToast } = useToast();
 
-  const { control, handleSubmit, reset } = useForm<NotificationFormValues>({
-    defaultValues: { title: '', message: '', type: '' },
-  });
+  const [platform, setPlatform] = useState<RegisterDevicePayload['platform']>('WEB');
+  const [token, setToken] = useState('');
+  const [deviceId, setDeviceId] = useState('');
+  const [saving, setSaving] = useState(false);
 
-  const filtered = useMemo(() => {
-    if (activeTab === 1) {
-      return notifications.filter((n) => !n.isRead);
+  const notifications = useApiData<Notification[]>(
+    (signal) => notificationsService.list(signal),
+    [],
+  );
+
+  const isListUnavailable = notifications.error !== null;
+
+  const deviceIdHint = useMemo(() => {
+    if (typeof window === 'undefined') return 'browser storage id';
+    return window.localStorage.getItem('servicehub_device_id') ?? 'browser storage id';
+  }, []);
+
+  const handleRegister = async () => {
+    if (!token.trim()) {
+      showToast('Paste the FCM registration token', 'error');
+      return;
     }
-    return notifications;
-  }, [notifications, activeTab]);
-
-  const stats = useMemo(() => ({
-    total: notifications.length,
-    unread: notifications.filter((n) => !n.isRead).length,
-    read: notifications.filter((n) => n.isRead).length,
-  }), [notifications]);
-
-  const handleMarkRead = (id: string) => {
-    setNotifications((prev) =>
-      prev.map((n) => (n.id === id ? { ...n, isRead: true } : n))
-    );
-  };
-
-  const handleMarkAllRead = () => {
-    setNotifications((prev) => prev.map((n) => ({ ...n, isRead: true })));
-    setSnackbar({ open: true, message: 'All notifications marked as read', severity: 'success' });
-  };
-
-  const handleOpenDelete = (notification: Notification) => {
-    setDeleteTarget(notification);
-    setDeleteDialogOpen(true);
-  };
-
-  const handleDeleteConfirm = () => {
-    if (deleteTarget) {
-      setNotifications((prev) => prev.filter((n) => n.id !== deleteTarget.id));
-      setDeleteDialogOpen(false);
-      setDeleteTarget(null);
-      setSnackbar({ open: true, message: 'Notification deleted', severity: 'success' });
+    if (!deviceId.trim()) {
+      showToast('A device id is required by the backend', 'error');
+      return;
     }
-  };
-
-  const handleSendSubmit = (data: NotificationFormValues) => {
-    const newNotification: Notification = {
-      id: `ntf_${String(notifications.length + 1).padStart(3, '0')}`,
-      title: data.title,
-      message: data.message,
-      type: data.type as NotificationType,
-      isRead: false,
-      createdAt: new Date().toISOString(),
-    };
-    setNotifications((prev) => [newNotification, ...prev]);
-    setSendOpen(false);
-    reset();
-    setSnackbar({ open: true, message: 'Notification sent successfully', severity: 'success' });
+    setSaving(true);
+    try {
+      await notificationsService.registerDevice({
+        platform,
+        token: token.trim(),
+        deviceId: deviceId.trim(),
+      });
+      showToast('Device registered for push notifications', 'success');
+      setToken('');
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : 'Unable to register device', 'error');
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
     <AdminLayout>
       <PageHeader
         title="Notifications"
-        subtitle="Manage notifications"
+        subtitle="Push channel registration and delivery status"
+        breadcrumbs={[{ label: 'Dashboard', path: '/dashboard' }, { label: 'Notifications' }]}
         action={
-          <Box sx={{ display: 'flex', gap: 1 }}>
-            {stats.unread > 0 && (
-              <Button variant="outlined" startIcon={<MarkEmailRead />} onClick={handleMarkAllRead}>
-                Mark All Read
-              </Button>
-            )}
-            <Button variant="contained" startIcon={<Add />} onClick={() => setSendOpen(true)}>
-              Send Notification
-            </Button>
-          </Box>
+          <Button startIcon={<Refresh />} onClick={notifications.refetch}>
+            Refresh
+          </Button>
         }
       />
 
-      <Grid container spacing={3} sx={{ mb: 4 }}>
-        <Grid size={{ xs: 12, sm: 4 }}>
-          <StatCard title="Total" value={stats.total} icon={<NotificationsIcon />} color="primary" />
-        </Grid>
-        <Grid size={{ xs: 12, sm: 4 }}>
-          <StatCard title="Unread" value={stats.unread} icon={<MarkEmailRead />} color="warning" />
-        </Grid>
-        <Grid size={{ xs: 12, sm: 4 }}>
-          <StatCard title="Read" value={stats.read} icon={<NotificationsIcon />} color="success" />
-        </Grid>
-      </Grid>
+      <Alert severity="warning" sx={{ mb: 2 }}>
+        <Typography variant="body2" fontWeight={600} gutterBottom>
+          Backend API required but unavailable
+        </Typography>
+        <Typography variant="body2">
+          Only <code>POST /api/v1/notifications/register-device</code> is mounted. The notification
+          routes file is empty on the backend, so no inbox, unread count or read state can be
+          loaded. Browser push also needs a Firebase web config, which this project does not ship.
+        </Typography>
+        <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap sx={{ mt: 1 }}>
+          {NOTIFICATIONS_MISSING_ENDPOINTS.map((endpoint) => (
+            <Chip key={endpoint} size="small" label={endpoint} variant="outlined" />
+          ))}
+        </Stack>
+      </Alert>
 
-      <Card>
-        <Box sx={{ borderBottom: 1, borderColor: 'divider', px: 2 }}>
-          <Tabs value={activeTab} onChange={(_, v) => setActiveTab(v)}>
-            <Tab
-              label={
-                <Badge badgeContent={stats.total} color="primary" max={999}>
-                  All
-                </Badge>
-              }
-            />
-            <Tab
-              label={
-                <Badge badgeContent={stats.unread} color="error" max={999}>
-                  Unread
-                </Badge>
-              }
-            />
-          </Tabs>
-        </Box>
+      <Stack direction={{ xs: 'column', md: 'row' }} spacing={3}>
+        <Card sx={{ flex: 1 }}>
+          <CardHeader
+            title="Register a device"
+            subheader={`Registers the signed-in admin${user?.email ? ` (${user.email})` : ''}`}
+            action={<NotificationsActive color="action" />}
+          />
+          <CardContent>
+            <Stack spacing={2.5}>
+              <FormSelect
+                label="Platform"
+                value={platform}
+                onChange={(value) =>
+                  setPlatform(String(value) as RegisterDevicePayload['platform'])
+                }
+                options={PLATFORM_OPTIONS}
+              />
 
-        <CardContent sx={{ p: 0 }}>
-          {filtered.length === 0 ? (
-            <Box sx={{ py: 8, textAlign: 'center' }}>
-              <Typography variant="body1" color="text.secondary">
-                No notifications to display.
-              </Typography>
-            </Box>
-          ) : (
-            filtered.map((notification, index) => (
-              <Box
-                key={notification.id}
-                sx={{
-                  display: 'flex',
-                  alignItems: 'flex-start',
-                  gap: 2,
-                  p: 2.5,
-                  px: 3,
-                  borderBottom: index < filtered.length - 1 ? '1px solid' : 'none',
-                  borderColor: 'divider',
-                  bgcolor: notification.isRead ? 'transparent' : 'action.hover',
-                  '&:hover': { bgcolor: 'action.hover' },
-                }}
-              >
-                <Box sx={{ mt: 0.5, position: 'relative' }}>
-                  {!notification.isRead && (
-                    <Circle
-                      sx={{
-                        fontSize: 10,
-                        color: 'primary.main',
-                        position: 'absolute',
-                        top: -2,
-                        right: -2,
-                      }}
-                    />
-                  )}
-                  <Box
-                    sx={{
-                      p: 1,
-                      borderRadius: 1.5,
-                      bgcolor: `${typeColorMap[notification.type] || 'primary'}.light`,
-                      color: `${typeColorMap[notification.type] || 'primary'}.main`,
-                      display: 'flex',
-                    }}
-                  >
-                    {typeIconMap[notification.type] || <NotificationsIcon />}
-                  </Box>
-                </Box>
+              <FormInput
+                label="Device id"
+                value={deviceId}
+                onChange={setDeviceId}
+                placeholder={deviceIdHint}
+                helperText="The backend upserts on (userId, deviceId)"
+              />
 
-                <Box sx={{ flex: 1, minWidth: 0 }}>
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
-                    <Typography
-                      variant="body1"
-                      fontWeight={notification.isRead ? 400 : 700}
-                      noWrap
-                    >
-                      {notification.title}
-                    </Typography>
-                    <Chip
-                      label={notification.type}
-                      size="small"
-                      color={typeColorMap[notification.type] || 'primary'}
-                      variant="outlined"
-                      sx={{ height: 20, fontSize: '0.65rem' }}
-                    />
-                  </Box>
-                  <Typography variant="body2" color="text.secondary" sx={{ mb: 0.5 }}>
-                    {notification.message}
-                  </Typography>
-                  <Typography variant="caption" color="text.secondary">
-                    {formatRelativeTime(notification.createdAt)}
-                  </Typography>
-                </Box>
+              <FormInput
+                label="FCM token"
+                value={token}
+                onChange={setToken}
+                multiline
+                rows={3}
+                placeholder="Paste the Firebase Cloud Messaging registration token"
+                helperText="Required. Generate it from a Firebase web app; this panel has no bundled Firebase SDK."
+              />
 
-                <Box sx={{ display: 'flex', gap: 0.5, flexShrink: 0 }}>
-                  {!notification.isRead && (
-                    <Tooltip title="Mark as Read">
-                      <IconButton size="small" color="primary" onClick={() => handleMarkRead(notification.id)}>
-                        <MarkEmailRead fontSize="small" />
-                      </IconButton>
-                    </Tooltip>
-                  )}
-                  <Tooltip title="Delete">
-                    <IconButton size="small" color="error" onClick={() => handleOpenDelete(notification)}>
-                      <Delete fontSize="small" />
-                    </IconButton>
-                  </Tooltip>
-                </Box>
+              <Box>
+                <Button variant="contained" onClick={handleRegister} disabled={saving}>
+                  {saving ? 'Registering…' : 'Register device'}
+                </Button>
               </Box>
-            ))
-          )}
-        </CardContent>
-      </Card>
+            </Stack>
+          </CardContent>
+        </Card>
 
-      <FormDialog
-        open={sendOpen}
-        title="Send Notification"
-        onClose={() => { setSendOpen(false); reset(); }}
-        onSubmit={handleSubmit(handleSendSubmit)}
-        submitText="Send"
-      >
-        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2.5, pt: 1 }}>
-          <FormTextField name="title" control={control as Control<any>} label="Title" required />
-          <FormTextField
-            name="message"
-            control={control as Control<any>}
-            label="Message"
-            multiline
-            rows={3}
-            required
-          />
-          <FormSelect
-            name="type"
-            control={control as Control<any>}
-            label="Notification Type"
-            options={notificationTypeOptions}
-            required
-          />
-        </Box>
-      </FormDialog>
+        <Card sx={{ flex: 1 }}>
+          <CardHeader title="Inbox" subheader="Notifications sent to the admin account" />
+          <CardContent>
+            {notifications.loading && (
+              <Typography variant="body2" color="text.secondary">
+                Loading…
+              </Typography>
+            )}
 
-      <ConfirmDialog
-        open={deleteDialogOpen}
-        title="Delete Notification"
-        message={`Are you sure you want to delete "${deleteTarget?.title}"? This action cannot be undone.`}
-        confirmText="Delete"
-        onConfirm={handleDeleteConfirm}
-        onCancel={() => { setDeleteDialogOpen(false); setDeleteTarget(null); }}
-        severity="error"
-      />
+            {!notifications.loading && isListUnavailable && (
+              <Alert severity="error">{notifications.error}</Alert>
+            )}
 
-      <Snackbar
-        open={snackbar.open}
-        autoHideDuration={3000}
-        onClose={() => setSnackbar((s) => ({ ...s, open: false }))}
-        anchorOrigin={{ vertical: 'top', horizontal: 'right' }}
-      >
-        <Alert
-          onClose={() => setSnackbar((s) => ({ ...s, open: false }))}
-          severity={snackbar.severity}
-          variant="filled"
-        >
-          {snackbar.message}
-        </Alert>
-      </Snackbar>
+            {!notifications.loading && !isListUnavailable && (
+              <Stack spacing={1.5}>
+                {notifications.data && notifications.data.length > 0 ? (
+                  notifications.data.map((notification) => (
+                    <Box
+                      key={notification.id}
+                      sx={{ p: 1.5, borderRadius: 1.5, border: '1px solid', borderColor: 'divider' }}
+                    >
+                      <Typography variant="body2" fontWeight={600}>
+                        {notification.title}
+                      </Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        {notification.body}
+                      </Typography>
+                      <Typography variant="caption" color="text.secondary" display="block">
+                        {formatDateTime(notification.createdAt)}
+                      </Typography>
+                    </Box>
+                  ))
+                ) : (
+                  <Typography variant="body2" color="text.secondary">
+                    No notifications returned.
+                  </Typography>
+                )}
+              </Stack>
+            )}
+
+            <Alert severity="info" sx={{ mt: 2 }}>
+              Booking assignment notifications are emitted by the backend through
+              <code> notificationEventService.bookingAssigned</code> when a provider is assigned, but
+              they are delivered through Firebase to registered devices only.
+            </Alert>
+          </CardContent>
+        </Card>
+      </Stack>
     </AdminLayout>
   );
 }

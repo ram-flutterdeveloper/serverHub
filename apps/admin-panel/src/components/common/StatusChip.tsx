@@ -10,6 +10,7 @@ interface StatusChipProps {
 }
 
 const colorMap: Record<string, ChipProps['color']> = {
+  /* legacy lowercase statuses */
   active: 'success',
   success: 'success',
   completed: 'success',
@@ -22,6 +23,24 @@ const colorMap: Record<string, ChipProps['color']> = {
   failed: 'error',
   draft: 'default',
   open: 'info',
+
+  /* backend enums */
+  approved: 'success',
+  paid: 'success',
+  resolved: 'success',
+  blocked: 'error',
+  deleted: 'default',
+  confirmed: 'info',
+  provider_assigned: 'info',
+  provider_accepted: 'info',
+  provider_rejected: 'error',
+  on_the_way: 'warning',
+  arrived: 'warning',
+  working: 'warning',
+  started: 'warning',
+  waiting: 'warning',
+  closed: 'default',
+  online: 'info',
 };
 
 export default function StatusChip({ status, label, size = 'small' }: StatusChipProps) {

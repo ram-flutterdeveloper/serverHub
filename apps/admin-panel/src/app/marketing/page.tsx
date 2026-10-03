@@ -115,6 +115,7 @@ export default function MarketingPage() {
 
   const handleCreateCampaign = (data: CampaignFormData) => {
     const newCampaign: CampaignType = {
+      // eslint-disable-next-line react-hooks/purity -- submit handler, not render
       id: `cmp_${Date.now()}`,
       name: data.name,
       type: data.type as CampaignType['type'],
@@ -307,11 +308,11 @@ export default function MarketingPage() {
         maxWidth="sm"
       >
         <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2.5, pt: 1 }}>
-          <FormTextField name="name" control={control as Control<any>} label="Campaign Name" required />
-          <FormSelect name="type" control={control as Control<any>} label="Type" options={typeOptions} required />
+          <FormTextField name="name" control={control as Control<CampaignFormData>} label="Campaign Name" required />
+          <FormSelect name="type" control={control as Control<CampaignFormData>} label="Type" options={typeOptions} required />
           <FormTextField
             name="content"
-            control={control as Control<any>}
+            control={control as Control<CampaignFormData>}
             label="Content"
             multiline
             rows={4}

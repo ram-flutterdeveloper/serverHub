@@ -1,23 +1,25 @@
 'use client';
 
-import React, { useState, useCallback } from 'react';
-import { Box, Paper } from '@mui/material';
-import {
-  DataGrid,
-  DataGridProps,
-  GridToolbar,
-  GridNoRowsOverlay,
-  GridOverlay,
-} from '@mui/x-data-grid';
-import type { GridColDef, GridRowParams } from '@mui/x-data-grid';
+import React, { useCallback } from 'react';
+import { Alert, Box, Paper } from '@mui/material';
+import { DataGrid, GridNoRowsOverlay, GridOverlay } from '@mui/x-data-grid';
+import type { GridColDef, GridRowParams, GridValidRowModel } from '@mui/x-data-grid';
 import SearchField from '../common/SearchField';
 import EmptyState from '../common/EmptyState';
 import { CircularProgress } from '@mui/material';
 
-interface DataTableProps {
-  rows: any[];
+interface DataTableProps<R = GridValidRowModel> {
+  rows: R[];
   columns: GridColDef[];
   loading?: boolean;
+  /** Backend / network error message rendered above the grid. */
+  error?: string | null;
+  onRetry?: () => void;
+  /**
+   * Use client side pagination for endpoints that return the full collection
+   * (master data endpoints are not paginated by the backend).
+   */
+  clientPagination?: boolean;
   totalRows?: number;
   onPageChange?: (page: number) => void;
   onPageSizeChange?: (pageSize: number) => void;
@@ -25,7 +27,7 @@ interface DataTableProps {
   searchPlaceholder?: string;
   toolbar?: React.ReactNode;
   checkboxSelection?: boolean;
-  onRowClick?: (row: any) => void;
+  onRowClick?: (row: R) => void;
   emptyMessage?: string;
   page?: number;
   pageSize?: number;
@@ -57,10 +59,13 @@ function CustomNoRowsOverlay({ message }: { message: string }) {
   );
 }
 
-export default function DataTable({
+export default function DataTable<R = GridValidRowModel>({
   rows,
   columns,
   loading = false,
+  error = null,
+  onRetry,
+  clientPagination = false,
   totalRows,
   onPageChange,
   onPageSizeChange,
@@ -72,11 +77,11 @@ export default function DataTable({
   emptyMessage = 'No records found.',
   page = 0,
   pageSize = 25,
-}: DataTableProps) {
+}: DataTableProps<R>) {
   const handleRowClick = useCallback(
     (params: GridRowParams) => {
       if (onRowClick) {
-        onRowClick(params.row);
+        onRowClick(params.row as R);
       }
     },
     [onRowClick]
@@ -98,21 +103,30 @@ export default function DataTable({
 
   return (
     <Paper variant="outlined" sx={{ width: '100%' }}>
+      {error && (
+        <Alert severity="error" sx={{ m: 1.5 }} onClose={onRetry}>
+          {error}
+        </Alert>
+      )}
       <DataGrid
-        rows={rows}
+        rows={rows as GridValidRowModel[]}
         columns={columns}
         loading={loading}
-        rowCount={totalRows ?? rows.length}
-        paginationMode="server"
-        paginationModel={{ page, pageSize }}
-        onPaginationModelChange={(model) => {
-          if (model.page !== page && onPageChange) {
-            onPageChange(model.page);
-          }
-          if (model.pageSize !== pageSize && onPageSizeChange) {
-            onPageSizeChange(model.pageSize);
-          }
-        }}
+        rowCount={clientPagination ? rows.length : (totalRows ?? rows.length)}
+        paginationMode={clientPagination ? 'client' : 'server'}
+        paginationModel={clientPagination ? undefined : { page, pageSize }}
+        onPaginationModelChange={
+          clientPagination
+            ? undefined
+            : (model) => {
+                if (model.page !== page && onPageChange) {
+                  onPageChange(model.page);
+                }
+                if (model.pageSize !== pageSize && onPageSizeChange) {
+                  onPageSizeChange(model.pageSize);
+                }
+              }
+        }
         checkboxSelection={checkboxSelection}
         onRowClick={onRowClick ? handleRowClick : undefined}
         rowHeight={52}

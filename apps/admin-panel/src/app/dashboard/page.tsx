@@ -1,717 +1,539 @@
 'use client';
 
-import React from 'react';
+import React, { useMemo } from 'react';
 import {
-  Grid,
+  Alert,
+  Avatar,
+  Box,
+  Button,
   Card,
   CardContent,
   CardHeader,
-  Typography,
-  Box,
-  List,
-  ListItem,
-  ListItemAvatar,
-  ListItemText,
-  Avatar,
-  IconButton,
   Divider,
+  Grid,
+  List,
+  ListItemAvatar,
+  ListItemButton,
+  ListItemText,
+  Skeleton,
   Table,
   TableBody,
   TableCell,
   TableContainer,
   TableHead,
   TableRow,
-  Chip,
+  Typography,
 } from '@mui/material';
 import {
+  ArrowForward,
   AttachMoney,
   CalendarMonth,
-  People,
   Engineering,
-  Star,
-  ArrowForward,
-  Payment,
-  RateReview,
-  PersonAdd,
-  Feedback,
   Event,
+  People,
 } from '@mui/icons-material';
-
-import Link from 'next/link';
+import NextLink from 'next/link';
 import { useRouter } from 'next/navigation';
 
 import AdminLayout from '@/components/layout/AdminLayout';
 import PageHeader from '@/components/common/PageHeader';
 import StatCard from '@/components/common/StatCard';
 import StatusChip from '@/components/common/StatusChip';
-import AreaChart from '@/components/charts/AreaChart';
-import BarChart from '@/components/charts/BarChart';
 import DonutChart from '@/components/charts/DonutChart';
+import BarChart from '@/components/charts/BarChart';
+import { bookingsService } from '@/services/bookings.service';
+import { providersService } from '@/services/providers.service';
+import { reviewsService } from '@/services/reviews.service';
+import { usersService } from '@/services/users.service';
+import { useApiData } from '@/hooks/useApiData';
+import { formatCurrency, formatDate, formatPhone } from '@/utils';
+import { resolveMediaUrl } from '@/utils/media';
 
-import { dashboardStats } from '@/data/dashboard';
-import { dummyBookings } from '@/data/bookings';
-import { dummyReviews } from '@/data/reviews';
-
-function formatCurrency(value: number): string {
-  if (value >= 1000000) return `$${(value / 1000000).toFixed(1)}M`;
-  if (value >= 1000) return `$${(value / 1000).toFixed(1)}K`;
-  return `$${value.toLocaleString()}`;
-}
-
-function formatFullCurrency(value: number): string {
-  return `$${value.toLocaleString()}`;
-}
-
-function getActivityIcon(type: string) {
-  switch (type) {
-    case 'booking':
-      return <CalendarMonth fontSize="small" sx={{ color: 'primary.main' }} />;
-    case 'payment':
-      return <Payment fontSize="small" sx={{ color: 'success.main' }} />;
-    case 'review':
-      return <RateReview fontSize="small" sx={{ color: 'warning.main' }} />;
-    case 'signup':
-      return <PersonAdd fontSize="small" sx={{ color: 'info.main' }} />;
-    case 'refund':
-      return <AttachMoney fontSize="small" sx={{ color: 'error.main' }} />;
-    case 'support':
-      return <Feedback fontSize="small" sx={{ color: 'secondary.main' }} />;
-    default:
-      return <Event fontSize="small" sx={{ color: 'text.secondary' }} />;
-  }
-}
-
-function getActivityAvatarBg(type: string): string {
-  switch (type) {
-    case 'booking':
-      return 'primary.light';
-    case 'payment':
-      return 'success.light';
-    case 'review':
-      return 'warning.light';
-    case 'signup':
-      return 'info.light';
-    case 'refund':
-      return 'error.light';
-    case 'support':
-      return 'secondary.light';
-    default:
-      return 'grey.300';
-  }
-}
-
-function StarRating({ rating }: { rating: number }) {
-  return (
-    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.25 }}>
-      {[1, 2, 3, 4, 5].map((star) => (
-        <Star
-          key={star}
-          fontSize="small"
-          sx={{
-            color: star <= rating ? 'warning.main' : 'grey.300',
-          }}
-        />
-      ))}
-    </Box>
-  );
+function initials(name: string | null | undefined, fallback: string): string {
+  const parts = (name ?? '').trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return fallback;
+  return parts
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase() ?? '')
+    .join('');
 }
 
 export default function DashboardPage() {
-  const { stats, revenueChart, bookingsChart, usersChart, topCategories, topProviders, recentBookings, recentReviews, liveActivities } = dashboardStats;
   const router = useRouter();
-  const donutBookingsData = [
-    {
-      name: 'Completed',
-      value: bookingsChart.completed.reduce((a, b) => a + b, 0),
-      color: '#388e3c',
-    },
-    {
-      name: 'Cancelled',
-      value: bookingsChart.cancelled.reduce((a, b) => a + b, 0),
-      color: '#d32f2f',
-    },
-  ];
 
-  const donutCategoriesData = topCategories.map((cat) => ({
-    name: cat.name,
-    value: cat.revenue,
-  }));
+  const users = useApiData((signal) => usersService.dashboard(signal), []);
+  const providers = useApiData((signal) => providersService.dashboard(signal), []);
+  const bookings = useApiData((signal) => bookingsService.dashboard(signal), []);
+  const recentBookings = useApiData(
+    (signal) => bookingsService.list({ page: 1, limit: 5 }, signal),
+    [],
+  );
+  const recentUsers = useApiData((signal) => usersService.list({ page: 1, limit: 5 }, signal), []);
+  const recentProviders = useApiData((signal) => providersService.list({ page: 1, limit: 5 }, signal), []);
+  const recentReviews = useApiData((signal) => reviewsService.list(signal), []);
 
-  const totalCompleted = bookingsChart.completed.reduce((a, b) => a + b, 0);
-  const totalCancelled = bookingsChart.cancelled.reduce((a, b) => a + b, 0);
-  const totalBookings = totalCompleted + totalCancelled;
+  const statsLoading = users.loading || providers.loading || bookings.loading;
+  const statsError = users.error ?? providers.error ?? bookings.error;
+
+  const bookingStatusData = useMemo(() => {
+    const stats = bookings.data;
+    if (!stats) return [];
+    return [
+      { name: 'Pending', value: stats.pendingBookings },
+      { name: 'Confirmed', value: stats.confirmedBookings },
+      { name: 'Assigned', value: stats.assignedBookings },
+      { name: 'In progress', value: stats.inProgressBookings },
+      { name: 'Completed', value: stats.completedBookings },
+      { name: 'Cancelled', value: stats.cancelledBookings },
+    ].filter((entry) => entry.value > 0);
+  }, [bookings.data]);
+
+  const providerStatusData = useMemo(() => {
+    const stats = providers.data;
+    if (!stats) return [];
+    return [
+      { name: 'Active', value: stats.approvedProviders },
+      { name: 'Pending', value: stats.pendingProviders },
+      { name: 'Suspended', value: stats.suspendedProviders },
+    ].filter((entry) => entry.value > 0);
+  }, [providers.data]);
+
+  const userStatusData = useMemo(() => {
+    const stats = users.data;
+    if (!stats) return [];
+    return [
+      { name: 'Active', value: stats.activeUsers },
+      { name: 'Blocked', value: stats.blockedUsers },
+      { name: 'New (30 days)', value: stats.newUsers },
+    ].filter((entry) => entry.value > 0);
+  }, [users.data]);
+
+  const recentUserRows = recentUsers.data?.rows ?? [];
+  const recentProviderRows = recentProviders.data?.rows ?? [];
+
+  const refetchAll = () => {
+    users.refetch();
+    providers.refetch();
+    bookings.refetch();
+    recentBookings.refetch();
+    recentUsers.refetch();
+    recentProviders.refetch();
+    recentReviews.refetch();
+  };
 
   return (
     <AdminLayout>
       <PageHeader
         title="Dashboard"
-        subtitle="Welcome back! Here's what's happening today."
+        subtitle="Live overview of customers, providers and bookings"
+        action={
+          <Button variant="outlined" onClick={refetchAll}>
+            Refresh
+          </Button>
+        }
       />
 
+      {statsError && (
+        <Alert severity="error" sx={{ mb: 3 }} onClose={refetchAll}>
+          {statsError}
+        </Alert>
+      )}
+
       <Grid container spacing={3}>
-        <Grid size={{ xs: 12, sm: 6, md: 3 }}>
+        <Grid size={{ xs: 12, sm: 6, lg: 3 }}>
           <StatCard
-            title="Total Revenue"
-            value={formatFullCurrency(stats.totalRevenue)}
-            icon={<AttachMoney />}
-            color="primary"
-            change={{ value: 12.5, isPositive: true }}
-          />
-        </Grid>
-        <Grid size={{ xs: 12, sm: 6, md: 3 }}>
-          <StatCard
-            title="Total Bookings"
-            value={stats.totalBookings.toLocaleString()}
-            icon={<CalendarMonth />}
-            color="success"
-            change={{ value: 8.2, isPositive: true }}
-          />
-        </Grid>
-        <Grid size={{ xs: 12, sm: 6, md: 3 }}>
-          <StatCard
-            title="Total Users"
-            value={stats.totalUsers.toLocaleString()}
+            title="Total Customers"
+            value={users.data?.totalUsers ?? 0}
             icon={<People />}
-            color="info"
-            change={{ value: 15.3, isPositive: true }}
+            color="primary"
+            loading={statsLoading}
           />
         </Grid>
-        <Grid size={{ xs: 12, sm: 6, md: 3 }}>
+        <Grid size={{ xs: 12, sm: 6, lg: 3 }}>
           <StatCard
             title="Total Providers"
-            value={stats.totalProviders.toLocaleString()}
+            value={providers.data?.totalProviders ?? 0}
             icon={<Engineering />}
+            color="info"
+            loading={statsLoading}
+          />
+        </Grid>
+        <Grid size={{ xs: 12, sm: 6, lg: 3 }}>
+          <StatCard
+            title="Total Bookings"
+            value={bookings.data?.totalBookings ?? 0}
+            icon={<CalendarMonth />}
+            color="success"
+            loading={statsLoading}
+          />
+        </Grid>
+        <Grid size={{ xs: 12, sm: 6, lg: 3 }}>
+          <StatCard
+            title="Total Revenue"
+            value={formatCurrency(bookings.data?.totalRevenue ?? 0)}
+            icon={<AttachMoney />}
             color="warning"
-            change={{ value: 5.1, isPositive: true }}
+            loading={statsLoading}
           />
         </Grid>
 
-        <Grid size={{ xs: 12, md: 8 }}>
-          <Card>
-            <CardContent>
-              <AreaChart
-                title="Revenue Overview"
-                data={{
-                  labels: revenueChart.labels,
-                  datasets: [
-                    {
-                      name: 'Revenue',
-                      data: revenueChart.data,
-                      color: '#1976d2',
-                    },
-                  ],
-                }}
-              />
-            </CardContent>
-          </Card>
+        <Grid size={{ xs: 12, sm: 6, lg: 3 }}>
+          <StatCard
+            title="Bookings Today"
+            value={bookings.data?.todayBookings ?? 0}
+            icon={<Event />}
+            color="info"
+            loading={statsLoading}
+          />
         </Grid>
-        <Grid size={{ xs: 12, md: 4 }}>
-          <Card>
-            <CardContent>
-              <DonutChart
-                title="Bookings by Status"
-                data={donutBookingsData}
-              />
-            </CardContent>
-          </Card>
+        <Grid size={{ xs: 12, sm: 6, lg: 3 }}>
+          <StatCard
+            title="Completed Bookings"
+            value={bookings.data?.completedBookings ?? 0}
+            icon={<CalendarMonth />}
+            color="success"
+            loading={statsLoading}
+          />
         </Grid>
-
-        <Grid size={{ xs: 12, md: 8 }}>
-          <Card>
-            <CardContent>
-              <BarChart
-                title="User Growth"
-                data={{
-                  labels: usersChart.labels,
-                  datasets: [
-                    {
-                      name: 'New Users',
-                      data: usersChart.newUsers,
-                      color: '#1976d2',
-                    },
-                    {
-                      name: 'Active Users',
-                      data: usersChart.activeUsers,
-                      color: '#388e3c',
-                    },
-                  ],
-                }}
-              />
-            </CardContent>
-          </Card>
+        <Grid size={{ xs: 12, sm: 6, lg: 3 }}>
+          <StatCard
+            title="New Customers (30d)"
+            value={users.data?.newUsers ?? 0}
+            icon={<People />}
+            color="primary"
+            loading={statsLoading}
+          />
         </Grid>
-        <Grid size={{ xs: 12, md: 4 }}>
-          <Card>
-            <CardContent>
-              <DonutChart
-                title="Top Categories"
-                data={donutCategoriesData}
-              />
-            </CardContent>
-          </Card>
+        <Grid size={{ xs: 12, sm: 6, lg: 3 }}>
+          <StatCard
+            title="Pending Providers"
+            value={providers.data?.pendingProviders ?? 0}
+            icon={<Engineering />}
+            color="warning"
+            loading={statsLoading}
+          />
         </Grid>
 
-        <Grid size={{ xs: 12, md: 8 }}>
+        <Grid size={{ xs: 12, lg: 8 }}>
           <Card>
             <CardHeader
-              title={
-                <Typography variant="h6" fontWeight={600}>
-                  Recent Bookings
-                </Typography>
-              }
+              title="Recent Bookings"
               action={
-                <IconButton
-                  component={Link}
-                  href="/bookings"
+                <Button
                   size="small"
-                  sx={{ color: 'primary.main' }}
+                  endIcon={<ArrowForward />}
+                  component={NextLink}
+                  href="/bookings"
                 >
-                  <ArrowForward />
-                </IconButton>
+                  View all
+                </Button>
               }
             />
-            <CardContent sx={{ pt: 0 }}>
-              <TableContainer>
+            <Divider />
+            <TableContainer>
+              {recentBookings.error && (
+                <Alert severity="error" sx={{ m: 2 }}>
+                  {recentBookings.error}
+                </Alert>
+              )}
+              {recentBookings.loading ? (
+                <Box sx={{ p: 2 }}>
+                  {[0, 1, 2].map((row) => (
+                    <Skeleton key={row} variant="text" height={42} />
+                  ))}
+                </Box>
+              ) : recentBookings.data && recentBookings.data.rows.length > 0 ? (
                 <Table size="small">
                   <TableHead>
                     <TableRow>
-                      <TableCell sx={{ fontWeight: 600 }}>Booking #</TableCell>
-                      <TableCell sx={{ fontWeight: 600 }}>Customer</TableCell>
-                      <TableCell sx={{ fontWeight: 600 }}>Provider</TableCell>
-                      <TableCell sx={{ fontWeight: 600 }}>Service</TableCell>
-                      <TableCell sx={{ fontWeight: 600 }} align="right">
-                        Amount
-                      </TableCell>
-                      <TableCell sx={{ fontWeight: 600 }}>Status</TableCell>
-                      <TableCell sx={{ fontWeight: 600 }}>Date</TableCell>
+                      <TableCell>Booking</TableCell>
+                      <TableCell>Customer</TableCell>
+                      <TableCell>Status</TableCell>
+                      <TableCell>Amount</TableCell>
                     </TableRow>
                   </TableHead>
                   <TableBody>
-                    {recentBookings.map((booking) => (
-                      // <TableRow
-                      //   key={booking.id}
-                      //   component={Link}
-                      //   href={`/bookings/${booking.id}`}
-                      //   sx={{
-                      //     cursor: 'pointer',
-                      //     '&:hover': { bgcolor: 'action.hover' },
-                      //   }}
-                      // >
-
+                    {recentBookings.data.rows.map((booking) => (
                       <TableRow
                         key={booking.id}
                         hover
-                        tabIndex={0}
+                        sx={{ cursor: 'pointer' }}
                         onClick={() => router.push(`/bookings/${booking.id}`)}
-                        onKeyDown={(event) => {
-                          if (event.key === 'Enter' || event.key === ' ') {
-                            event.preventDefault();
-                            router.push(`/bookings/${booking.id}`);
-                          }
-                        }}
-                        sx={{
-                          cursor: 'pointer',
-
-                          '&:focus-visible': {
-                            outline: '2px solid',
-                            outlineColor: 'primary.main',
-                            outlineOffset: '-2px',
-                          },
-                        }}
                       >
                         <TableCell>
-                          <Typography variant="body2" fontWeight={500} color="primary.main">
+                          <Typography variant="body2" fontWeight={600}>
                             {booking.bookingNumber}
                           </Typography>
-                        </TableCell>
-                        <TableCell>
-                          <Typography variant="body2">{booking.customerName}</Typography>
-                        </TableCell>
-                        <TableCell>
-                          <Typography variant="body2">{booking.providerName}</Typography>
-                        </TableCell>
-                        <TableCell>
-                          <Typography variant="body2" noWrap sx={{ maxWidth: 180 }}>
-                            {booking.service}
+                          <Typography variant="caption" color="text.secondary">
+                            {formatDate(booking.bookingDate)}
                           </Typography>
                         </TableCell>
-                        <TableCell align="right">
-                          <Typography variant="body2" fontWeight={600}>
-                            {formatFullCurrency(booking.amount)}
-                          </Typography>
+                        <TableCell>
+                          {booking.user
+                            ? `${booking.user.firstName ?? ''} ${booking.user.lastName ?? ''}`.trim() ||
+                              booking.user.mobile
+                            : '—'}
                         </TableCell>
                         <TableCell>
                           <StatusChip status={booking.status} />
                         </TableCell>
+                        <TableCell>{formatCurrency(booking.totalAmount)}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              ) : (
+                <Typography variant="body2" color="text.secondary" sx={{ p: 3 }}>
+                  No bookings yet.
+                </Typography>
+              )}
+            </TableContainer>
+          </Card>
+        </Grid>
+
+        <Grid size={{ xs: 12, lg: 4 }}>
+          <Card>
+            <CardHeader title="Booking Status" />
+            <Divider />
+            <CardContent>
+              {bookingStatusData.length > 0 ? (
+                <DonutChart data={bookingStatusData} height={280} />
+              ) : (
+                <Typography variant="body2" color="text.secondary">
+                  Not enough data to display the chart.
+                </Typography>
+              )}
+            </CardContent>
+          </Card>
+        </Grid>
+
+        <Grid size={{ xs: 12, md: 6 }}>
+          <Card>
+            <CardHeader title="Provider Status" />
+            <Divider />
+            <CardContent>
+              {providerStatusData.length > 0 ? (
+                <BarChart
+                  data={{
+                    labels: providerStatusData.map((entry) => entry.name),
+                    datasets: [
+                      {
+                        name: 'Providers',
+                        data: providerStatusData.map((entry) => entry.value),
+                      },
+                    ],
+                  }}
+                  height={260}
+                />
+              ) : (
+                <Typography variant="body2" color="text.secondary">
+                  No providers registered yet.
+                </Typography>
+              )}
+            </CardContent>
+          </Card>
+        </Grid>
+
+        <Grid size={{ xs: 12, md: 6 }}>
+          <Card>
+            <CardHeader title="Customer Status" />
+            <Divider />
+            <CardContent>
+              {userStatusData.length > 0 ? (
+                <BarChart
+                  data={{
+                    labels: userStatusData.map((entry) => entry.name),
+                    datasets: [
+                      {
+                        name: 'Customers',
+                        data: userStatusData.map((entry) => entry.value),
+                      },
+                    ],
+                  }}
+                  height={260}
+                />
+              ) : (
+                <Typography variant="body2" color="text.secondary">
+                  No customers registered yet.
+                </Typography>
+              )}
+            </CardContent>
+          </Card>
+        </Grid>
+
+        <Grid size={{ xs: 12, md: 6 }}>
+          <Card>
+            <CardHeader
+              title="Recent Customers"
+              action={
+                <Button size="small" endIcon={<ArrowForward />} component={NextLink} href="/users">
+                  View all
+                </Button>
+              }
+            />
+            <Divider />
+            {recentUsers.loading ? (
+              <Box sx={{ p: 2 }}>
+                {[0, 1, 2].map((row) => (
+                  <Skeleton key={row} variant="text" height={48} />
+                ))}
+              </Box>
+            ) : recentUsers.error ? (
+              <Alert severity="error" sx={{ m: 2 }}>
+                {recentUsers.error}
+              </Alert>
+            ) : recentUserRows.length > 0 ? (
+              <List disablePadding>
+                {recentUserRows.map((user, index) => (
+                  <React.Fragment key={user.id}>
+                    <ListItemButton onClick={() => router.push(`/users/${user.id}`)} sx={{ py: 1.5 }}>
+                      <ListItemAvatar sx={{ minWidth: 56 }}>
+                        <Avatar src={resolveMediaUrl(user.profileImage) ?? undefined} sx={{ bgcolor: 'primary.light' }}>
+                          {initials(`${user.firstName ?? ''} ${user.lastName ?? ''}`, user.mobile.slice(-2))}
+                        </Avatar>
+                      </ListItemAvatar>
+                      <ListItemText
+                        primary={`${user.firstName ?? ''} ${user.lastName ?? ''}`.trim() || user.mobile}
+                        secondary={formatPhone(user.mobile, user.countryCode)}
+                        primaryTypographyProps={{ fontSize: '0.875rem', fontWeight: 600 }}
+                        secondaryTypographyProps={{ fontSize: '0.75rem' }}
+                      />
+                      <StatusChip status={user.status} />
+                    </ListItemButton>
+                    {index < recentUserRows.length - 1 && <Divider />}
+                  </React.Fragment>
+                ))}
+              </List>
+            ) : (
+              <Typography variant="body2" color="text.secondary" sx={{ p: 3 }}>
+                No customers yet.
+              </Typography>
+            )}
+          </Card>
+        </Grid>
+
+        <Grid size={{ xs: 12, md: 6 }}>
+          <Card>
+            <CardHeader
+              title="Recent Providers"
+              action={
+                <Button
+                  size="small"
+                  endIcon={<ArrowForward />}
+                  component={NextLink}
+                  href="/providers"
+                >
+                  View all
+                </Button>
+              }
+            />
+            <Divider />
+            {recentProviders.loading ? (
+              <Box sx={{ p: 2 }}>
+                {[0, 1, 2].map((row) => (
+                  <Skeleton key={row} variant="text" height={48} />
+                ))}
+              </Box>
+            ) : recentProviders.error ? (
+              <Alert severity="error" sx={{ m: 2 }}>
+                {recentProviders.error}
+              </Alert>
+            ) : recentProviderRows.length > 0 ? (
+              <List disablePadding>
+                {recentProviderRows.map((provider, index) => (
+                  <React.Fragment key={provider.id}>
+                    <ListItemButton onClick={() => router.push(`/providers/${provider.id}`)} sx={{ py: 1.5 }}>
+                      <ListItemAvatar sx={{ minWidth: 56 }}>
+                        <Avatar
+                          src={resolveMediaUrl(provider.profileImage) ?? undefined}
+                          sx={{ bgcolor: 'info.light' }}
+                        >
+                          {initials(provider.businessName, 'P')}
+                        </Avatar>
+                      </ListItemAvatar>
+                      <ListItemText
+                        primary={provider.businessName}
+                        secondary={`${provider.phone} · ${provider.experience} yr exp`}
+                        primaryTypographyProps={{ fontSize: '0.875rem', fontWeight: 600 }}
+                        secondaryTypographyProps={{ fontSize: '0.75rem' }}
+                      />
+                      <StatusChip status={provider.status} />
+                    </ListItemButton>
+                    {index < recentProviderRows.length - 1 && <Divider />}
+                  </React.Fragment>
+                ))}
+              </List>
+            ) : (
+              <Typography variant="body2" color="text.secondary" sx={{ p: 3 }}>
+                No providers yet.
+              </Typography>
+            )}
+          </Card>
+        </Grid>
+
+        <Grid size={12}>
+          <Card>
+            <CardHeader
+              title="Latest Reviews"
+              action={
+                <Button size="small" endIcon={<ArrowForward />} component={NextLink} href="/reviews">
+                  View all
+                </Button>
+              }
+            />
+            <Divider />
+            <TableContainer>
+              {recentReviews.loading ? (
+                <Box sx={{ p: 2 }}>
+                  {[0, 1, 2].map((row) => (
+                    <Skeleton key={row} variant="text" height={42} />
+                  ))}
+                </Box>
+              ) : recentReviews.error ? (
+                <Alert severity="error" sx={{ m: 2 }}>
+                  {recentReviews.error}
+                </Alert>
+              ) : recentReviews.data && recentReviews.data.length > 0 ? (
+                <Table size="small">
+                  <TableHead>
+                    <TableRow>
+                      <TableCell>Customer</TableCell>
+                      <TableCell>Provider</TableCell>
+                      <TableCell>Package</TableCell>
+                      <TableCell>Rating</TableCell>
+                      <TableCell>Status</TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {recentReviews.data.slice(0, 5).map((review) => (
+                      <TableRow
+                        key={review.id}
+                        hover
+                        sx={{ cursor: 'pointer' }}
+                        onClick={() => router.push(`/reviews/${review.id}`)}
+                      >
                         <TableCell>
-                          <Typography variant="body2" color="text.secondary">
-                            {new Date(booking.createdAt).toLocaleDateString('en-US', {
-                              month: 'short',
-                              day: 'numeric',
-                              year: 'numeric',
-                            })}
-                          </Typography>
+                          {review.user
+                            ? `${review.user.firstName ?? ''} ${review.user.lastName ?? ''}`.trim() ||
+                              review.user.id
+                            : '—'}
+                        </TableCell>
+                        <TableCell>{review.provider?.businessName ?? '—'}</TableCell>
+                        <TableCell>{review.package?.name ?? '—'}</TableCell>
+                        <TableCell>{review.rating} ★</TableCell>
+                        <TableCell>
+                          <StatusChip status={review.status} />
                         </TableCell>
                       </TableRow>
                     ))}
                   </TableBody>
                 </Table>
-              </TableContainer>
-            </CardContent>
-          </Card>
-        </Grid>
-
-        <Grid size={{ xs: 12, md: 4 }}>
-          <Card sx={{ height: '100%' }}>
-            <CardHeader
-              title={
-                <Typography variant="h6" fontWeight={600}>
-                  Top Providers
+              ) : (
+                <Typography variant="body2" color="text.secondary" sx={{ p: 3 }}>
+                  No reviews yet.
                 </Typography>
-              }
-            />
-            <CardContent sx={{ pt: 0 }}>
-              <List disablePadding>
-                {topProviders.map((provider, index) => (
-                  <React.Fragment key={index}>
-                    <ListItem disablePadding sx={{ py: 1.5 }}>
-                      <ListItemAvatar>
-                        <Avatar
-                          sx={{
-                            bgcolor: 'primary.light',
-                            color: 'primary.main',
-                            fontWeight: 600,
-                            fontSize: '0.875rem',
-                          }}
-                        >
-                          {provider.name.charAt(0)}
-                        </Avatar>
-                      </ListItemAvatar>
-                      <ListItemText
-                        disableTypography
-                        primary={
-                          <Typography variant="body2" fontWeight={600} noWrap>
-                            {provider.name}
-                          </Typography>
-                        }
-                        // secondary={
-                        //   <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mt: 0.25 }}>
-                        //     <Star fontSize="small" sx={{ color: 'warning.main', fontSize: 14 }} />
-                        //     <Typography variant="caption" fontWeight={500}>
-                        //       {provider.rating}
-                        //     </Typography>
-                        //     <Typography variant="caption" color="text.secondary">
-                        //       &middot; {provider.bookings.toLocaleString()} bookings
-                        //     </Typography>
-                        //   </Box>
-                        // }
-                        secondary={
-                          <Box
-                            component="div"
-                            sx={{
-                              display: 'flex',
-                              alignItems: 'center',
-                              gap: 0.5,
-                              mt: 0.25,
-                            }}
-                          >
-                            <Star
-                              fontSize="small"
-                              sx={{
-                                color: 'warning.main',
-                                fontSize: 14,
-                              }}
-                            />
-
-                            <Typography
-                              component="span"
-                              variant="caption"
-                              fontWeight={500}
-                            >
-                              {provider.rating}
-                            </Typography>
-
-                            <Typography
-                              component="span"
-                              variant="caption"
-                              color="text.secondary"
-                            >
-                              &middot; {provider.bookings.toLocaleString()} bookings
-                            </Typography>
-                          </Box>
-                        }
-                      />
-                      <Typography variant="body2" fontWeight={600} color="success.main">
-                        {formatCurrency(provider.earnings)}
-                      </Typography>
-                    </ListItem>
-                    {index < topProviders.length - 1 && <Divider />}
-                  </React.Fragment>
-                ))}
-              </List>
-            </CardContent>
-          </Card>
-        </Grid>
-
-        <Grid size={{ xs: 12, md: 6 }}>
-          <Card sx={{ height: '100%' }}>
-            <CardHeader
-              title={
-                <Typography variant="h6" fontWeight={600}>
-                  Recent Reviews
-                </Typography>
-              }
-              action={
-                <IconButton
-                  component={Link}
-                  href="/reviews"
-                  size="small"
-                  sx={{ color: 'primary.main' }}
-                >
-                  <ArrowForward />
-                </IconButton>
-              }
-            />
-            <CardContent sx={{ pt: 0 }}>
-              <List disablePadding>
-                {recentReviews.map((review, index) => (
-                  <React.Fragment key={review.id}>
-                    <ListItem disablePadding sx={{ py: 1.5 }}>
-                      <ListItemAvatar>
-                        <Avatar
-                          sx={{
-                            bgcolor: 'grey.200',
-                            color: 'text.primary',
-                            fontWeight: 600,
-                            fontSize: '0.875rem',
-                          }}
-                        >
-                          {review.customerName.charAt(0)}
-                        </Avatar>
-                      </ListItemAvatar>
-                      <ListItemText
-                        disableTypography
-                        primary={
-                          <Box
-                            sx={{
-                              display: 'flex',
-                              alignItems: 'center',
-                              gap: 1,
-                            }}
-                          >
-                            <Typography
-                              component="span"
-                              variant="body2"
-                              fontWeight={600}
-                            >
-                              {review.customerName}
-                            </Typography>
-
-                            <StarRating rating={review.rating} />
-                          </Box>
-                        }
-                        secondary={
-                          <Box sx={{ mt: 0.5 }}>
-                            <Typography
-                              component="span"
-                              variant="caption"
-                              color="text.secondary"
-                              sx={{ display: 'block' }}
-                            >
-                              {review.service} &middot; {review.providerName}
-                            </Typography>
-
-                            <Typography
-                              component="p"
-                              variant="body2"
-                              color="text.secondary"
-                              sx={{
-                                mt: 0.5,
-                                mb: 0,
-                                display: '-webkit-box',
-                                WebkitLineClamp: 2,
-                                WebkitBoxOrient: 'vertical',
-                                overflow: 'hidden',
-                              }}
-                            >
-                              &quot;{review.comment}&quot;
-                            </Typography>
-
-                            <Typography
-                              component="span"
-                              variant="caption"
-                              color="text.secondary"
-                              sx={{
-                                mt: 0.5,
-                                display: 'block',
-                              }}
-                            >
-                              {new Date(review.createdAt).toLocaleDateString('en-US', {
-                                month: 'short',
-                                day: 'numeric',
-                                year: 'numeric',
-                              })}
-                            </Typography>
-                          </Box>
-                        }
-                      />
-                    </ListItem>
-                    {index < recentReviews.length - 1 && <Divider />}
-                  </React.Fragment>
-                ))}
-              </List>
-            </CardContent>
-          </Card>
-        </Grid>
-
-        <Grid size={{ xs: 12, md: 6 }}>
-          <Card sx={{ height: '100%' }}>
-            <CardHeader
-              title={
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                  <Typography variant="h6" fontWeight={600}>
-                    Live Activity
-                  </Typography>
-                  <Box
-                    sx={{
-                      width: 8,
-                      height: 8,
-                      borderRadius: '50%',
-                      bgcolor: 'success.main',
-                      animation: 'pulse 2s infinite',
-                      '@keyframes pulse': {
-                        '0%': { opacity: 1, transform: 'scale(1)' },
-                        '50%': { opacity: 0.5, transform: 'scale(1.2)' },
-                        '100%': { opacity: 1, transform: 'scale(1)' },
-                      },
-                    }}
-                  />
-                </Box>
-              }
-            />
-            <CardContent sx={{ pt: 0 }}>
-              <List disablePadding>
-                {liveActivities.map((activity, index) => (
-                  <React.Fragment key={activity.id}>
-                    <ListItem disablePadding sx={{ py: 1 }}>
-                      <ListItemAvatar sx={{ minWidth: 48 }}>
-                        <Avatar
-                          sx={{
-                            bgcolor: getActivityAvatarBg(activity.type),
-                            width: 36,
-                            height: 36,
-                          }}
-                        >
-                          {getActivityIcon(activity.type)}
-                        </Avatar>
-                      </ListItemAvatar>
-                      <ListItemText
-                        primary={
-                          <Typography variant="body2">
-                            {activity.message}
-                          </Typography>
-                        }
-                        secondary={
-                          <Typography variant="caption" color="text.secondary">
-                            {activity.time}
-                          </Typography>
-                        }
-                      />
-                    </ListItem>
-                    {index < liveActivities.length - 1 && <Divider />}
-                  </React.Fragment>
-                ))}
-              </List>
-            </CardContent>
-          </Card>
-        </Grid>
-
-        <Grid size={{ xs: 12, md: 4 }}>
-          <Card sx={{ height: '100%' }}>
-            <CardHeader
-              title={
-                <Typography variant="h6" fontWeight={600}>
-                  Pending Requests
-                </Typography>
-              }
-            />
-            <CardContent>
-              <Box sx={{ textAlign: 'center', mb: 3 }}>
-                <Typography variant="h2" fontWeight={700} color="warning.main">
-                  {stats.pendingBookings}
-                </Typography>
-                <Typography variant="body2" color="text.secondary">
-                  Pending Bookings
-                </Typography>
-              </Box>
-              <Divider sx={{ mb: 2 }} />
-              <List disablePadding>
-                <ListItem sx={{ px: 0 }}>
-                  <ListItemText
-                    primary={
-                      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <Typography variant="body2">Active Services</Typography>
-                        <Chip label={stats.activeServices} size="small" color="success" variant="outlined" />
-                      </Box>
-                    }
-                  />
-                </ListItem>
-                <Divider />
-                <ListItem sx={{ px: 0 }}>
-                  <ListItemText
-                    primary={
-                      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <Typography variant="body2">Today&apos;s Bookings</Typography>
-                        <Chip label={stats.todayBookings} size="small" color="info" variant="outlined" />
-                      </Box>
-                    }
-                  />
-                </ListItem>
-                <Divider />
-                <ListItem sx={{ px: 0 }}>
-                  <ListItemText
-                    primary={
-                      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <Typography variant="body2">Today&apos;s Revenue</Typography>
-                        <Chip label={formatFullCurrency(stats.todayRevenue)} size="small" color="primary" variant="outlined" />
-                      </Box>
-                    }
-                  />
-                </ListItem>
-                <Divider />
-                <ListItem sx={{ px: 0 }}>
-                  <ListItemText
-                    primary={
-                      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <Typography variant="body2">Completion Rate</Typography>
-                        <Chip
-                          label={`${((totalCompleted / totalBookings) * 100).toFixed(1)}%`}
-                          size="small"
-                          color="success"
-                          variant="outlined"
-                        />
-                      </Box>
-                    }
-                  />
-                </ListItem>
-                <Divider />
-                <ListItem sx={{ px: 0 }}>
-                  <ListItemText
-                    primary={
-                      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <Typography variant="body2">Cancellation Rate</Typography>
-                        <Chip
-                          label={`${((totalCancelled / totalBookings) * 100).toFixed(1)}%`}
-                          size="small"
-                          color="error"
-                          variant="outlined"
-                        />
-                      </Box>
-                    }
-                  />
-                </ListItem>
-              </List>
-            </CardContent>
+              )}
+            </TableContainer>
           </Card>
         </Grid>
       </Grid>

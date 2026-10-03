@@ -1,205 +1,330 @@
 'use client';
 
-import { useState } from 'react';
-import { useParams } from 'next/navigation';
-import Link from 'next/link';
+import React, { useMemo, useState } from 'react';
 import {
-  Grid,
-  Card,
-  CardContent,
-  Typography,
+  Alert,
   Box,
   Button,
-  Breadcrumbs,
-  Chip,
-  Avatar,
+  Card,
+  CardContent,
+  CardHeader,
   Divider,
+  Grid,
+  Skeleton,
+  Stack,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableRow,
+  Typography,
 } from '@mui/material';
-import {
-  Edit as EditIcon,
-  ArrowBack as ArrowBackIcon,
-} from '@mui/icons-material';
-import { useForm } from 'react-hook-form';
-import { zodResolver } from '@hookform/resolvers/zod';
-import { z } from 'zod';
+import { ArrowBack, Edit, Refresh } from '@mui/icons-material';
+import { useParams, useRouter } from 'next/navigation';
+
 import AdminLayout from '@/components/layout/AdminLayout';
 import PageHeader from '@/components/common/PageHeader';
 import StatusChip from '@/components/common/StatusChip';
-import FormDialog from '@/components/common/FormDialog';
-import FormTextField from '@/components/common/FormTextField';
+import FormInput from '@/components/common/FormInput';
 import FormSelect from '@/components/common/FormSelect';
-import { dummySubServices } from '@/data/subServices';
-import { dummyCategories } from '@/data/categories';
-import { formatDate } from '@/utils';
-import type { SubService } from '@/types';
+import FormSwitchField from '@/components/common/FormSwitchField';
+import FormDialog from '@/components/dialogs/FormDialog';
+import { subCategoriesService } from '@/services/categories.service';
+import { servicesService } from '@/services/services.service';
+import { packagesService } from '@/services/packages.service';
+import { useApiData } from '@/hooks/useApiData';
+import { useToast } from '@/context/ToastContext';
+import { RecordStatus, type SubCategory, type SubCategoryPayload } from '@/types/api';
+import { formatCurrency, formatDateTime } from '@/utils';
 
-const subServiceSchema = z.object({
-  name: z.string().min(1, 'Name is required'),
-  categoryId: z.string().min(1, 'Category is required'),
-  description: z.string().optional(),
-});
+const STATUS_OPTIONS = [
+  { value: RecordStatus.ACTIVE, label: 'Active' },
+  { value: RecordStatus.INACTIVE, label: 'Inactive' },
+];
 
-type SubServiceFormData = z.infer<typeof subServiceSchema>;
+function DetailRow({ label, value }: { label: string; value: React.ReactNode }) {
+  return (
+    <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 2, py: 0.75 }}>
+      <Typography variant="body2" color="text.secondary">
+        {label}
+      </Typography>
+      <Typography variant="body2" fontWeight={500} textAlign="right">
+        {value}
+      </Typography>
+    </Box>
+  );
+}
 
 export default function SubServiceDetailPage() {
-  const params = useParams();
-  const id = params.id as string;
+  const router = useRouter();
+  const params = useParams<{ id: string }>();
+  const subCategoryId = params.id;
+  const { showToast } = useToast();
 
-  const [subService, setSubService] = useState<SubService | undefined>(
-    dummySubServices.find((s) => s.id === id)
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  // There is no `GET /sub-categories/:id`, so the record is resolved from the list.
+  const subCategories = useApiData((signal) => subCategoriesService.list(signal), []);
+  const services = useApiData((signal) => servicesService.list(signal), []);
+  const packages = useApiData(
+    (signal) => packagesService.listBySubCategory(subCategoryId, signal),
+    [subCategoryId],
   );
-  const [editOpen, setEditOpen] = useState(false);
 
-  const editForm = useForm<SubServiceFormData>({
-    resolver: zodResolver(subServiceSchema),
-    defaultValues: {
-      name: subService?.name || '',
-      categoryId: subService?.categoryId || '',
-      description: subService?.description || '',
-    },
-  });
+  const subCategory: SubCategory | undefined = useMemo(
+    () => subCategories.data?.find((item) => item.id === subCategoryId),
+    [subCategories.data, subCategoryId],
+  );
 
-  const categoryOptions = dummyCategories.map((c) => ({ value: c.id, label: c.name }));
+  const parentService = useMemo(
+    () => services.data?.find((service) => service.id === subCategory?.serviceId),
+    [services.data, subCategory?.serviceId],
+  );
 
-  const category = dummyCategories.find((c) => c.id === subService?.categoryId);
+  const serviceOptions = useMemo(
+    () => (services.data ?? []).map((service) => ({ value: service.id, label: service.name })),
+    [services.data],
+  );
 
-  const handleEdit = (data: SubServiceFormData) => {
-    if (!subService) return;
-    const cat = dummyCategories.find((c) => c.id === data.categoryId);
-    setSubService({
-      ...subService,
-      name: data.name,
-      categoryId: data.categoryId,
-      categoryName: cat?.name || '',
-      description: data.description || '',
+  const [form, setForm] = useState<SubCategoryPayload>({ serviceId: '', name: '' });
+
+  const openEdit = () => {
+    if (!subCategory) return;
+    setForm({
+      serviceId: subCategory.serviceId,
+      name: subCategory.name,
+      description: subCategory.description ?? '',
+      sortOrder: subCategory.sortOrder ?? 0,
+      isFeatured: subCategory.isFeatured,
+      status: subCategory.status,
     });
-    setEditOpen(false);
+    setDialogOpen(true);
   };
 
-  if (!subService) {
-    return (
-      <AdminLayout>
-        <Box sx={{ textAlign: 'center', py: 10 }}>
-          <Typography variant="h5" gutterBottom>
-            Sub Service Not Found
-          </Typography>
-          <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-            The sub-service you are looking for does not exist or has been removed.
-          </Typography>
-          <Button component={Link} href="/sub-services" variant="contained">
-            Back to Sub Services
-          </Button>
-        </Box>
-      </AdminLayout>
-    );
-  }
+  const handleSubmit = async () => {
+    if (!form.serviceId) {
+      showToast('Select the parent service', 'error');
+      return;
+    }
+    if (!form.name.trim()) {
+      showToast('Sub service name is required', 'error');
+      return;
+    }
+    setSaving(true);
+    try {
+      await subCategoriesService.update(subCategoryId, form);
+      showToast('Sub service updated successfully', 'success');
+      setDialogOpen(false);
+      subCategories.refetch();
+      packages.refetch();
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : 'Unable to save sub service', 'error');
+    } finally {
+      setSaving(false);
+    }
+  };
 
   return (
     <AdminLayout>
-      <Box sx={{ mb: 3 }}>
-        <Breadcrumbs aria-label="breadcrumb">
-          <Link href="/sub-services" style={{ textDecoration: 'none', color: 'inherit' }}>
-            Sub Services
-          </Link>
-          <Typography color="text.primary">{subService.name}</Typography>
-        </Breadcrumbs>
-      </Box>
-
       <PageHeader
-        title={subService.name}
-        description={subService.description || 'Sub-service details'}
+        title={subCategory?.name ?? 'Sub service details'}
+        breadcrumbs={[
+          { label: 'Dashboard', path: '/dashboard' },
+          { label: 'Sub services', path: '/sub-services' },
+          { label: 'Details' },
+        ]}
         action={
-          <Button variant="contained" startIcon={<EditIcon />} onClick={() => setEditOpen(true)}>
-            Edit
-          </Button>
+          <Stack direction="row" spacing={1}>
+            <Button startIcon={<ArrowBack />} onClick={() => router.push('/sub-services')}>
+              Back
+            </Button>
+            <Button
+              startIcon={<Refresh />}
+              onClick={() => {
+                subCategories.refetch();
+                services.refetch();
+                packages.refetch();
+              }}
+            >
+              Refresh
+            </Button>
+            <Button variant="contained" startIcon={<Edit />} onClick={openEdit} disabled={!subCategory}>
+              Edit
+            </Button>
+          </Stack>
         }
       />
 
-      <Grid container spacing={3}>
-        <Grid size={{ xs: 12, md: 8 }}>
-          <Card sx={{ mb: 3 }}>
-            <CardContent>
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 3 }}>
-                <Avatar sx={{ bgcolor: 'secondary.main', width: 64, height: 64, fontSize: 24 }}>
-                  {subService.name.charAt(0).toUpperCase()}
-                </Avatar>
-                <Box>
-                  <Typography variant="h5">{subService.name}</Typography>
-                  <StatusChip status={subService.isActive ? 'active' : 'inactive'} />
-                </Box>
-              </Box>
+      {subCategories.error && (
+        <Alert severity="error" sx={{ mb: 2 }} onClose={subCategories.refetch}>
+          {subCategories.error}
+        </Alert>
+      )}
 
-              <Typography variant="body1" color="text.secondary" sx={{ mb: 2 }}>
-                {subService.description || 'No description provided.'}
-              </Typography>
-            </CardContent>
-          </Card>
+      {subCategories.loading && (
+        <Card>
+          <CardContent>
+            <Skeleton variant="text" width="30%" height={40} />
+            <Skeleton variant="text" width="60%" />
+          </CardContent>
+        </Card>
+      )}
 
-          <Card>
-            <CardContent>
-              <Typography variant="h6" gutterBottom>
-                Category Information
-              </Typography>
-              {category ? (
-                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
-                  <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
-                    <Typography variant="body2" color="text.secondary">Category Name</Typography>
-                    <Typography variant="body2" fontWeight={500}>{category.name}</Typography>
-                  </Box>
-                  <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
-                    <Typography variant="body2" color="text.secondary">Description</Typography>
-                    <Typography variant="body2">{category.description || 'N/A'}</Typography>
-                  </Box>
-                  <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
-                    <Typography variant="body2" color="text.secondary">Status</Typography>
-                    <StatusChip status={category.isActive ? 'active' : 'inactive'} />
-                  </Box>
-                </Box>
-              ) : (
-                <Typography variant="body2" color="text.secondary">Category not found.</Typography>
-              )}
-            </CardContent>
-          </Card>
+      {!subCategories.loading && subCategory && (
+        <Grid container spacing={3}>
+          <Grid size={{ xs: 12, md: 5 }}>
+            <Card>
+              <CardHeader title="Overview" />
+              <Divider />
+              <CardContent>
+                <DetailRow label="Name" value={subCategory.name} />
+                <DetailRow label="Slug" value={subCategory.slug} />
+                <DetailRow
+                  label="Parent service"
+                  value={
+                    parentService ? (
+                      <Button
+                        size="small"
+                        onClick={() => router.push(`/services/${parentService.id}`)}
+                      >
+                        {parentService.name}
+                      </Button>
+                    ) : (
+                      'Unknown'
+                    )
+                  }
+                />
+                <DetailRow label="Sort order" value={subCategory.sortOrder} />
+                <DetailRow
+                  label="Status"
+                  value={<StatusChip status={subCategory.status} />}
+                />
+                <DetailRow
+                  label="Featured"
+                  value={subCategory.isFeatured ? 'Yes' : 'No'}
+                />
+                <DetailRow label="Created" value={formatDateTime(subCategory.createdAt)} />
+                <DetailRow label="Updated" value={formatDateTime(subCategory.updatedAt)} />
+              </CardContent>
+            </Card>
+          </Grid>
+
+          <Grid size={{ xs: 12, md: 7 }}>
+            <Card>
+              <CardHeader title="Description" />
+              <Divider />
+              <CardContent>
+                <Typography variant="body2" color="text.secondary">
+                  {subCategory.description ?? 'No description provided.'}
+                </Typography>
+              </CardContent>
+            </Card>
+
+            <Card sx={{ mt: 3 }}>
+              <CardHeader title={`Packages (${packages.data?.length ?? 0})`} />
+              <Divider />
+              <CardContent>
+                {packages.error && <Alert severity="error">{packages.error}</Alert>}
+                {packages.loading ? (
+                  <Skeleton variant="text" />
+                ) : packages.data && packages.data.length > 0 ? (
+                  <Table size="small">
+                    <TableHead>
+                      <TableRow>
+                        <TableCell>Package</TableCell>
+                        <TableCell>Default price</TableCell>
+                        <TableCell>Status</TableCell>
+                      </TableRow>
+                    </TableHead>
+                    <TableBody>
+                      {packages.data.map((item) => (
+                        <TableRow
+                          key={item.id}
+                          hover
+                          sx={{ cursor: 'pointer' }}
+                          onClick={() => router.push(`/packages/${item.id}`)}
+                        >
+                          <TableCell>{item.name}</TableCell>
+                          <TableCell>
+                            {formatCurrency(Number(item.defaultPrice))}
+                            {item.offerPrice != null && (
+                              <Typography variant="caption" color="success.main" display="block">
+                                Offer {formatCurrency(Number(item.offerPrice))}
+                              </Typography>
+                            )}
+                          </TableCell>
+                          <TableCell>
+                            <StatusChip status={item.status} />
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                ) : (
+                  <Typography variant="body2" color="text.secondary">
+                    No packages use this sub service yet.
+                  </Typography>
+                )}
+              </CardContent>
+            </Card>
+          </Grid>
         </Grid>
-
-        <Grid size={{ xs: 12, md: 4 }}>
-          <Card>
-            <CardContent>
-              <Typography variant="h6" gutterBottom>
-                Statistics
-              </Typography>
-              <Box sx={{ display: 'flex', justifyContent: 'space-between', py: 1.5, borderBottom: 1, borderColor: 'divider' }}>
-                <Typography variant="body2" color="text.secondary">Services</Typography>
-                <Chip label={subService.serviceCount} size="small" color="primary" />
-              </Box>
-              <Box sx={{ display: 'flex', justifyContent: 'space-between', py: 1.5, borderBottom: 1, borderColor: 'divider' }}>
-                <Typography variant="body2" color="text.secondary">Status</Typography>
-                <StatusChip status={subService.isActive ? 'active' : 'inactive'} />
-              </Box>
-              <Box sx={{ display: 'flex', justifyContent: 'space-between', py: 1.5 }}>
-                <Typography variant="body2" color="text.secondary">Created</Typography>
-                <Typography variant="body2">{formatDate(subService.createdAt)}</Typography>
-              </Box>
-            </CardContent>
-          </Card>
-        </Grid>
-      </Grid>
+      )}
 
       <FormDialog
-        open={editOpen}
-        onClose={() => setEditOpen(false)}
-        title="Edit Sub Service"
-        onSubmit={editForm.handleSubmit(handleEdit)}
+        open={dialogOpen}
+        title="Edit sub service"
+        onClose={() => setDialogOpen(false)}
+        onSubmit={handleSubmit}
+        submitText="Save changes"
+        loading={saving}
       >
-        <FormTextField control={editForm.control} name="name" label="Name" required />
-        <FormSelect
-          control={editForm.control}
-          name="categoryId"
-          options={categoryOptions}
-          label="Category"
-          required
-        />
-        <FormTextField control={editForm.control} name="description" label="Description" multiline rows={3} />
+        <Stack spacing={2.5} sx={{ pt: 1 }}>
+          <FormSelect
+            label="Parent service"
+            value={form.serviceId}
+            onChange={(value) => setForm((prev) => ({ ...prev, serviceId: String(value) }))}
+            options={serviceOptions}
+            required
+          />
+          <FormInput
+            label="Name"
+            value={form.name}
+            onChange={(value) => setForm((prev) => ({ ...prev, name: value }))}
+            required
+          />
+          <FormInput
+            label="Description"
+            value={form.description ?? ''}
+            onChange={(value) => setForm((prev) => ({ ...prev, description: value }))}
+            multiline
+            rows={3}
+          />
+          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
+            <FormInput
+              label="Sort order"
+              value={form.sortOrder ?? 0}
+              onChange={(value) => setForm((prev) => ({ ...prev, sortOrder: Number(value) }))}
+              type="number"
+            />
+            <Box sx={{ flex: 1 }}>
+              <FormSelect
+                label="Status"
+                value={form.status}
+                onChange={(value) =>
+                  setForm((prev) => ({ ...prev, status: String(value) as RecordStatus }))
+                }
+                options={STATUS_OPTIONS}
+              />
+            </Box>
+          </Stack>
+          <FormSwitchField
+            label="Featured sub service"
+            checked={Boolean(form.isFeatured)}
+            onChange={(checked) => setForm((prev) => ({ ...prev, isFeatured: checked }))}
+          />
+        </Stack>
       </FormDialog>
     </AdminLayout>
   );

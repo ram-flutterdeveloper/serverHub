@@ -1,255 +1,394 @@
 'use client';
 
-import React, { useState, useMemo } from 'react';
-import {
-  Box,
-  Grid,
-  Button,
-  IconButton,
-  Tooltip,
-  Typography,
-  Snackbar,
-  Alert,
-  Chip,
-  Rating,
-} from '@mui/material';
-import {
-  Inventory,
-  Visibility,
-  Star,
-  TrendingUp,
-  Add,
-} from '@mui/icons-material';
-import type { GridColDef } from '@mui/x-data-grid';
+import React, { useMemo, useState } from 'react';
+import { Alert, Box, Button, Stack, Typography } from '@mui/material';
+import { Add, DeleteOutline, Edit, Refresh } from '@mui/icons-material';
 import { useRouter } from 'next/navigation';
+import type { GridColDef } from '@mui/x-data-grid';
 
 import AdminLayout from '@/components/layout/AdminLayout';
 import PageHeader from '@/components/common/PageHeader';
-import StatCard from '@/components/common/StatCard';
 import StatusChip from '@/components/common/StatusChip';
-import DataTable from '@/components/tables/DataTable';
+import ImageCell from '@/components/common/ImageCell';
+import ImageUploadField from '@/components/common/ImageUploadField';
+import FormInput from '@/components/common/FormInput';
+import FormSelect from '@/components/common/FormSelect';
+import FormSwitchField from '@/components/common/FormSwitchField';
 import FormDialog from '@/components/dialogs/FormDialog';
-import FormTextField from '@/components/forms/FormTextField';
-import FormSelect from '@/components/forms/FormSelect';
-import { dummyServices } from '@/data/services';
-import { dummyCategories } from '@/data/categories';
-import { Service, ServiceStatus } from '@/types';
-import { formatCurrency } from '@/utils';
+import ConfirmDialog from '@/components/dialogs/ConfirmDialog';
+import DataTable from '@/components/tables/DataTable';
+import { servicesService } from '@/services/services.service';
+import { categoriesService } from '@/services/categories.service';
+import { useApiData } from '@/hooks/useApiData';
+import { useToast } from '@/context/ToastContext';
+import { RecordStatus, type Service, type ServicePayload } from '@/types/api';
+import { formatDate } from '@/utils';
+import { resolveMediaUrl } from '@/utils/media';
 
-const serviceStatusOptions = [
-  { value: ServiceStatus.ACTIVE, label: 'Active' },
-  { value: ServiceStatus.INACTIVE, label: 'Inactive' },
-  { value: ServiceStatus.DRAFT, label: 'Draft' },
-  { value: ServiceStatus.ARCHIVED, label: 'Archived' },
+const STATUS_OPTIONS = [
+  { value: RecordStatus.ACTIVE, label: 'Active' },
+  { value: RecordStatus.INACTIVE, label: 'Inactive' },
 ];
 
 export default function ServicesPage() {
   const router = useRouter();
-  const [services, setServices] = useState<Service[]>(dummyServices);
+  const { showToast } = useToast();
+
   const [search, setSearch] = useState('');
-  const [statusFilter, setStatusFilter] = useState<string>('all');
-  const [page, setPage] = useState(0);
-  const [pageSize, setPageSize] = useState(25);
-  const [addOpen, setAddOpen] = useState(false);
-  const [editOpen, setEditOpen] = useState(false);
-  const [selectedService, setSelectedService] = useState<Service | null>(null);
-  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
-  const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' as 'success' | 'error' });
+  const [categoryFilter, setCategoryFilter] = useState('ALL');
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [editing, setEditing] = useState<Service | null>(null);
+  const [form, setForm] = useState<Omit<ServicePayload, 'image'>>({
+    categoryId: '',
+    name: '',
+    description: '',
+    sortOrder: 0,
+    isFeatured: false,
+    status: RecordStatus.ACTIVE,
+  });
+  const [image, setImage] = useState<File | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<Service | null>(null);
 
-  const filtered = useMemo(() => {
-    let result = services;
-    if (statusFilter !== 'all') {
-      result = result.filter((s) => s.status === statusFilter);
+  const services = useApiData((signal) => servicesService.list(signal), []);
+  const categories = useApiData((signal) => categoriesService.list(signal), []);
+
+  const categoryNameById = useMemo(() => {
+    const map = new Map<string, string>();
+    (categories.data ?? []).forEach((category) => map.set(category.id, category.name));
+    return map;
+  }, [categories.data]);
+
+  const categoryOptions = useMemo(
+    () => [
+      { value: 'ALL', label: 'All categories' },
+      ...(categories.data ?? []).map((category) => ({ value: category.id, label: category.name })),
+    ],
+    [categories.data],
+  );
+
+  const rows = useMemo(() => {
+    let list = services.data ?? [];
+    if (categoryFilter !== 'ALL') {
+      list = list.filter((item) => item.categoryId === categoryFilter);
     }
-    if (search) {
-      const q = search.toLowerCase();
-      result = result.filter(
-        (s) =>
-          s.title.toLowerCase().includes(q) ||
-          s.category.toLowerCase().includes(q) ||
-          s.provider.toLowerCase().includes(q) ||
-          s.city.toLowerCase().includes(q)
-      );
+    const term = search.trim().toLowerCase();
+    if (!term) return list;
+    return list.filter((item) =>
+      `${item.name} ${item.slug} ${item.description ?? ''} ${categoryNameById.get(item.categoryId) ?? ''}`
+        .toLowerCase()
+        .includes(term),
+    );
+  }, [services.data, search, categoryFilter, categoryNameById]);
+
+  const openCreate = () => {
+    setEditing(null);
+    setForm({
+      categoryId: categoryFilter !== 'ALL' ? categoryFilter : categories.data?.[0]?.id ?? '',
+      name: '',
+      description: '',
+      sortOrder: 0,
+      isFeatured: false,
+      status: RecordStatus.ACTIVE,
+    });
+    setImage(null);
+    setDialogOpen(true);
+  };
+
+  const openEdit = (service: Service) => {
+    setEditing(service);
+    setForm({
+      categoryId: service.categoryId,
+      name: service.name,
+      description: service.description ?? '',
+      sortOrder: service.sortOrder ?? 0,
+      isFeatured: service.isFeatured,
+      status: service.status,
+    });
+    setImage(null);
+    setDialogOpen(true);
+  };
+
+  const handleSubmit = async () => {
+    if (!form.categoryId) {
+      showToast('Select a category (required by the backend)', 'error');
+      return;
     }
-    return result;
-  }, [services, search, statusFilter]);
+    if (!form.name.trim()) {
+      showToast('Service name is required', 'error');
+      return;
+    }
+    setSaving(true);
+    try {
+      const payload: ServicePayload = { ...form, image };
+      if (editing) {
+        await servicesService.update(editing.id, payload);
+        showToast('Service updated successfully', 'success');
+      } else {
+        await servicesService.create(payload);
+        showToast('Service created successfully', 'success');
+      }
+      setDialogOpen(false);
+      services.refetch();
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : 'Unable to save service', 'error');
+    } finally {
+      setSaving(false);
+    }
+  };
 
-  const stats = useMemo(() => ({
-    total: services.length,
-    active: services.filter((s) => s.status === ServiceStatus.ACTIVE).length,
-    featured: services.filter((s) => s.isFeatured).length,
-    totalBookings: services.reduce((sum, s) => sum + s.totalBookings, 0),
-  }), [services]);
+  const handleDelete = async () => {
+    if (!deleteTarget) return;
+    setSaving(true);
+    try {
+      await servicesService.remove(deleteTarget.id);
+      showToast('Service deleted successfully', 'success');
+      setDeleteTarget(null);
+      services.refetch();
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : 'Unable to delete service', 'error');
+    } finally {
+      setSaving(false);
+    }
+  };
 
-  const categoryOptions = dummyCategories.map((c) => ({ value: c.id, label: c.name }));
-
-  const columns: GridColDef[] = [
-    {
-      field: 'title',
-      headerName: 'Service',
-      flex: 2,
-      minWidth: 200,
-      renderCell: ({ row }) => (
-        <Box>
-          <Typography variant="body2" fontWeight={600}>
-            {row.title}
-          </Typography>
-          <Typography variant="caption" color="text.secondary">
-            {row.category}
-          </Typography>
-        </Box>
-      ),
-    },
-    {
-      field: 'provider',
-      headerName: 'Provider',
-      flex: 1.5,
-      minWidth: 160,
-      renderCell: ({ row }) => (
-        <Typography variant="body2">{row.provider}</Typography>
-      ),
-    },
-    {
-      field: 'city',
-      headerName: 'City',
-      width: 130,
-      renderCell: ({ row }) => (
-        <Typography variant="body2">{row.city}</Typography>
-      ),
-    },
-    {
-      field: 'price',
-      headerName: 'Price',
-      width: 120,
-      renderCell: ({ row }) => (
-        <Typography variant="body2" fontWeight={600}>
-          {formatCurrency(row.price)}
-          <Typography variant="caption" color="text.secondary">
-            {' '}/ {row.priceType}
-          </Typography>
-        </Typography>
-      ),
-    },
-    {
-      field: 'rating',
-      headerName: 'Rating',
-      width: 160,
-      renderCell: ({ row }) => (
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-          <Rating value={row.rating} precision={0.1} size="small" readOnly />
-          <Typography variant="caption" color="text.secondary">
-            ({row.rating})
-          </Typography>
-        </Box>
-      ),
-    },
-    {
-      field: 'totalBookings',
-      headerName: 'Bookings',
-      width: 100,
-      renderCell: ({ row }) => (
-        <Typography variant="body2">{row.totalBookings}</Typography>
-      ),
-    },
-    {
-      field: 'status',
-      headerName: 'Status',
-      width: 120,
-      renderCell: ({ row }) => <StatusChip status={row.status} />,
-    },
-    {
-      field: 'actions',
-      headerName: '',
-      width: 60,
-      sortable: false,
-      filterable: false,
-      renderCell: ({ row }) => (
-        <Tooltip title="View Details">
-          <IconButton
-            size="small"
-            color="primary"
-            onClick={() => router.push(`/services/${row.id}`)}
-          >
-            <Visibility fontSize="small" />
-          </IconButton>
-        </Tooltip>
-      ),
-    },
-  ];
+  const columns = useMemo<GridColDef[]>(
+    () => [
+      {
+        field: 'image',
+        headerName: '',
+        width: 64,
+        sortable: false,
+        filterable: false,
+        renderCell: (params) => (
+          <ImageCell src={resolveMediaUrl((params.row as Service).image)} alt={params.row.name} />
+        ),
+      },
+      {
+        field: 'name',
+        headerName: 'Service',
+        flex: 1.1,
+        minWidth: 200,
+        sortable: false,
+        renderCell: (params) => {
+          const service = params.row as Service;
+          return (
+            <Box>
+              <Typography variant="body2" fontWeight={600} noWrap>
+                {service.name}
+              </Typography>
+              <Typography variant="caption" color="text.secondary" noWrap>
+                {service.slug}
+              </Typography>
+            </Box>
+          );
+        },
+      },
+      {
+        field: 'categoryId',
+        headerName: 'Category',
+        flex: 1,
+        minWidth: 170,
+        sortable: false,
+        valueGetter: (value: string) => categoryNameById.get(value) ?? 'Unknown category',
+      },
+      {
+        field: 'status',
+        headerName: 'Status',
+        flex: 0.6,
+        minWidth: 110,
+        sortable: false,
+        renderCell: (params) => <StatusChip status={params.value as string} />,
+      },
+      {
+        field: 'isFeatured',
+        headerName: 'Featured',
+        flex: 0.5,
+        minWidth: 100,
+        sortable: false,
+        renderCell: (params) => (
+          <StatusChip
+            status={params.value ? 'ACTIVE' : 'INACTIVE'}
+            label={params.value ? 'Featured' : 'Standard'}
+          />
+        ),
+      },
+      {
+        field: 'sortOrder',
+        headerName: 'Order',
+        flex: 0.4,
+        minWidth: 90,
+        sortable: false,
+      },
+      {
+        field: 'createdAt',
+        headerName: 'Created',
+        flex: 0.7,
+        minWidth: 130,
+        sortable: false,
+        valueGetter: (value: string) => formatDate(value),
+      },
+      {
+        field: 'actions',
+        headerName: 'Actions',
+        flex: 0.5,
+        minWidth: 120,
+        sortable: false,
+        filterable: false,
+        renderCell: (params) => {
+          const service = params.row as Service;
+          return (
+            <Stack direction="row" spacing={0.5}>
+              <Button
+                size="small"
+                startIcon={<Edit />}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  openEdit(service);
+                }}
+              >
+                Edit
+              </Button>
+              <Button
+                size="small"
+                color="error"
+                startIcon={<DeleteOutline />}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  setDeleteTarget(service);
+                }}
+              >
+                Delete
+              </Button>
+            </Stack>
+          );
+        },
+      },
+    ],
+     
+    [categoryNameById],
+  );
 
   return (
     <AdminLayout>
       <PageHeader
         title="Services"
-        subtitle="Manage all marketplace services"
+        subtitle="Bookable services inside each category"
+        breadcrumbs={[{ label: 'Dashboard', path: '/dashboard' }, { label: 'Services' }]}
         action={
-          <Box sx={{ display: 'flex', gap: 1 }}>
-            <Chip
-              label="All"
-              onClick={() => setStatusFilter('all')}
-              color={statusFilter === 'all' ? 'primary' : 'default'}
-              variant={statusFilter === 'all' ? 'filled' : 'outlined'}
-              clickable
-            />
-            <Chip
-              label="Active"
-              onClick={() => setStatusFilter(ServiceStatus.ACTIVE)}
-              color={statusFilter === ServiceStatus.ACTIVE ? 'success' : 'default'}
-              variant={statusFilter === ServiceStatus.ACTIVE ? 'filled' : 'outlined'}
-              clickable
-            />
-            <Chip
-              label="Draft"
-              onClick={() => setStatusFilter(ServiceStatus.DRAFT)}
-              color={statusFilter === ServiceStatus.DRAFT ? 'warning' : 'default'}
-              variant={statusFilter === ServiceStatus.DRAFT ? 'filled' : 'outlined'}
-              clickable
-            />
-          </Box>
+          <Stack direction="row" spacing={1}>
+            <Button startIcon={<Refresh />} onClick={() => { services.refetch(); categories.refetch(); }}>
+              Refresh
+            </Button>
+            <Button variant="contained" startIcon={<Add />} onClick={openCreate}>
+              Add service
+            </Button>
+          </Stack>
         }
       />
 
-      <Grid container spacing={3} sx={{ mb: 4 }}>
-        <Grid size={{ xs: 12, sm: 6, md: 3 }}>
-          <StatCard title="Total Services" value={stats.total} icon={<Inventory />} color="primary" />
-        </Grid>
-        <Grid size={{ xs: 12, sm: 6, md: 3 }}>
-          <StatCard title="Active" value={stats.active} icon={<Star />} color="success" />
-        </Grid>
-        <Grid size={{ xs: 12, sm: 6, md: 3 }}>
-          <StatCard title="Featured" value={stats.featured} icon={<Star />} color="warning" />
-        </Grid>
-        <Grid size={{ xs: 12, sm: 6, md: 3 }}>
-          <StatCard title="Total Bookings" value={stats.totalBookings.toLocaleString()} icon={<TrendingUp />} color="info" />
-        </Grid>
-      </Grid>
+      <Box sx={{ minWidth: 260, mb: 2 }}>
+        <FormSelect
+          label="Filter by category"
+          value={categoryFilter}
+          onChange={(value) => setCategoryFilter(String(value))}
+          options={categoryOptions}
+        />
+      </Box>
+
+      {categories.error && <Alert severity="error" sx={{ mb: 2 }}>{categories.error}</Alert>}
 
       <DataTable
-        rows={filtered}
+        rows={rows}
         columns={columns}
+        loading={services.loading}
+        error={services.error}
+        onRetry={services.refetch}
+        clientPagination
+        pageSize={25}
         onSearch={setSearch}
-        searchPlaceholder="Search services by title, category, provider, or city..."
-        page={page}
-        pageSize={pageSize}
-        onPageChange={setPage}
-        onPageSizeChange={setPageSize}
-        onRowClick={(row) => router.push(`/services/${row.id}`)}
+        searchPlaceholder="Search services"
+        onRowClick={(row: Service) => router.push(`/services/${row.id}`)}
+        emptyMessage="No services yet"
       />
 
-      <Snackbar
-        open={snackbar.open}
-        autoHideDuration={3000}
-        onClose={() => setSnackbar((s) => ({ ...s, open: false }))}
-        anchorOrigin={{ vertical: 'top', horizontal: 'right' }}
+      <FormDialog
+        open={dialogOpen}
+        title={editing ? 'Edit service' : 'Add service'}
+        onClose={() => setDialogOpen(false)}
+        onSubmit={handleSubmit}
+        submitText={editing ? 'Save changes' : 'Create service'}
+        loading={saving}
       >
-        <Alert
-          onClose={() => setSnackbar((s) => ({ ...s, open: false }))}
-          severity={snackbar.severity}
-          variant="filled"
-        >
-          {snackbar.message}
-        </Alert>
-      </Snackbar>
+        <Stack spacing={2.5} sx={{ pt: 1 }}>
+          <FormSelect
+            label="Category"
+            value={form.categoryId}
+            onChange={(value) => setForm((prev) => ({ ...prev, categoryId: String(value) }))}
+            options={categoryOptions.filter((option) => option.value !== 'ALL')}
+            required
+            helperText="Required by the backend on create and update"
+          />
+
+          <FormInput
+            label="Name"
+            value={form.name}
+            onChange={(value) => setForm((prev) => ({ ...prev, name: value }))}
+            required
+          />
+
+          <FormInput
+            label="Description"
+            value={form.description ?? ''}
+            onChange={(value) => setForm((prev) => ({ ...prev, description: value }))}
+            multiline
+            rows={3}
+          />
+
+          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
+            <FormInput
+              label="Sort order"
+              value={form.sortOrder ?? 0}
+              onChange={(value) => setForm((prev) => ({ ...prev, sortOrder: Number(value) }))}
+              type="number"
+            />
+            <Box sx={{ flex: 1 }}>
+              <FormSelect
+                label="Status"
+                value={form.status}
+                onChange={(value) =>
+                  setForm((prev) => ({ ...prev, status: String(value) as RecordStatus }))
+                }
+                options={STATUS_OPTIONS}
+              />
+            </Box>
+          </Stack>
+
+          <FormSwitchField
+            label="Featured service"
+            checked={Boolean(form.isFeatured)}
+            onChange={(checked) => setForm((prev) => ({ ...prev, isFeatured: checked }))}
+          />
+
+          <ImageUploadField
+            file={image}
+            onChange={setImage}
+            previewUrl={editing ? resolveMediaUrl(editing.image) : null}
+            label="Service image"
+          />
+        </Stack>
+      </FormDialog>
+
+      <ConfirmDialog
+        open={Boolean(deleteTarget)}
+        title="Delete service"
+        message={`Delete ${deleteTarget?.name ?? ''}? Its sub services, packages and city availability may block the delete.`}
+        severity="error"
+        confirmText="Delete"
+        loading={saving}
+        onCancel={() => setDeleteTarget(null)}
+        onConfirm={handleDelete}
+      />
     </AdminLayout>
   );
 }

@@ -242,10 +242,10 @@ export default function AreaDetailPage() {
         submitText="Update"
       >
         <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2.5, pt: 1 }}>
-          <FormTextField name="name" control={control as Control<any>} label="Area Name" required />
+          <FormTextField name="name" control={control as Control<AreaFormData>} label="Area Name" required />
           <FormSelect
             name="cityId"
-            control={control as Control<any>}
+            control={control as Control<AreaFormData>}
             label="City"
             options={cityOptions}
             required
