@@ -16,7 +16,7 @@ import { UserAddress } from "../../../profile/models";
 import { Category, Service, SubCategory } from "../../../master-data/models";
 
 class AdminBookingRepository {
- 
+
 
   async getDashboard() {
     const [
@@ -76,8 +76,19 @@ class AdminBookingRepository {
 
       Booking.sum("totalAmount"),
 
+      // Booking.count({
+      //   where: fn("DATE", col("createdAt")),
+      // }),
+
       Booking.count({
-        where: fn("DATE", col("createdAt")),
+        where: {
+          createdAt: {
+            [Op.gte]: new Date(new Date().setHours(0, 0, 0, 0)),
+            [Op.lt]: new Date(
+              new Date().setHours(0, 0, 0, 0) + 24 * 60 * 60 * 1000
+            ),
+          },
+        },
       }),
     ]);
 
@@ -103,71 +114,135 @@ class AdminBookingRepository {
   }
 
   async getBookings({
-  page,
-  limit,
-  search,
-  status,
-  paymentStatus,
-  customerId,
-  providerId,
-  from,
-  to,
-}: {
-  page: number;
-  limit: number;
-  search?: string;
-  status?: string;
-  paymentStatus?: string;
-  customerId?: string;
-  providerId?: string;
-  from?: string;
-  to?: string;
-}) {
+    page,
+    limit,
+    search,
+    status,
+    paymentStatus,
+    customerId,
+    providerId,
+    from,
+    to,
+  }: {
+    page: number;
+    limit: number;
+    search?: string;
+    status?: string;
+    paymentStatus?: string;
+    customerId?: string;
+    providerId?: string;
+    from?: string;
+    to?: string;
+  }) {
 
-  const where: any = {};
+    const where: any = {};
 
-  if (search) {
-    where.bookingNumber = {
-      [Op.iLike]: `%${search}%`,
+    if (search) {
+      where.bookingNumber = {
+        [Op.iLike]: `%${search}%`,
+      };
+    }
+
+    if (status) {
+      where.status = status;
+    }
+
+    if (paymentStatus) {
+      where.paymentStatus = paymentStatus;
+    }
+
+    if (customerId) {
+      where.userId = customerId;
+    }
+
+    if (providerId) {
+      where.providerId = providerId;
+    }
+
+    if (from && to) {
+      where.bookingDate = {
+        [Op.between]: [from, to],
+      };
+    }
+
+    const { rows, count } =
+      await Booking.findAndCountAll({
+
+        where,
+
+        offset: (page - 1) * limit,
+
+        limit,
+
+        order: [["createdAt", "DESC"]],
+
+        distinct: true,
+
+        include: [
+
+          {
+            model: User,
+            as: "user",
+            attributes: [
+              "id",
+              "firstName",
+              "lastName",
+              "mobile",
+            ],
+          },
+
+          {
+            model: Provider,
+            as: "provider",
+            required: false,
+          },
+
+          {
+            model: BookingItem,
+            as: "items",
+
+            include: [
+              {
+                model: Package,
+                as: "package",
+              },
+            ],
+          },
+
+        ],
+
+      });
+
+    return {
+
+      bookings: rows,
+
+      pagination: {
+
+        total: count,
+
+        page,
+
+        limit,
+
+        totalPages: Math.ceil(count / limit),
+
+      },
+
     };
   }
 
-  if (status) {
-    where.status = status;
-  }
+  async getBookingDetails(id: string) {
 
-  if (paymentStatus) {
-    where.paymentStatus = paymentStatus;
-  }
-
-  if (customerId) {
-    where.userId = customerId;
-  }
-
-  if (providerId) {
-    where.providerId = providerId;
-  }
-
-  if (from && to) {
-    where.bookingDate = {
-      [Op.between]: [from, to],
-    };
-  }
-
-  const { rows, count } =
-    await Booking.findAndCountAll({
-
-      where,
-
-      offset: (page - 1) * limit,
-
-      limit,
-
-      order: [["createdAt", "DESC"]],
-
-      distinct: true,
+    return Booking.findByPk(id, {
 
       include: [
+
+        /*
+        |--------------------------------------------------------------------------
+        | Customer
+        |--------------------------------------------------------------------------
+        */
 
         {
           model: User,
@@ -177,8 +252,16 @@ class AdminBookingRepository {
             "firstName",
             "lastName",
             "mobile",
+            "email",
+            "profileImage",
           ],
         },
+
+        /*
+        |--------------------------------------------------------------------------
+        | Provider
+        |--------------------------------------------------------------------------
+        */
 
         {
           model: Provider,
@@ -186,172 +269,100 @@ class AdminBookingRepository {
           required: false,
         },
 
+        /*
+        |--------------------------------------------------------------------------
+        | Address
+        |--------------------------------------------------------------------------
+        */
+
+        {
+          model: UserAddress,
+          as: "address",
+        },
+
+        /*
+        |--------------------------------------------------------------------------
+        | Booking Items
+        |--------------------------------------------------------------------------
+        */
+
         {
           model: BookingItem,
           as: "items",
 
           include: [
+
             {
               model: Package,
               as: "package",
+
+              include: [
+
+                {
+                  model: Service,
+                  as: "service",
+
+                  include: [
+
+                    {
+                      model: SubCategory,
+                      as: "subCategory",
+
+                      include: [
+
+                        {
+                          model: Category,
+                          as: "category",
+                        },
+
+                      ],
+
+                    },
+
+                  ],
+
+                },
+
+              ],
+
             },
+
+          ],
+
+        },
+
+        /*
+        |--------------------------------------------------------------------------
+        | Requirements
+        |--------------------------------------------------------------------------
+        */
+
+        {
+          model: BookingRequirement,
+          as: "requirements",
+        },
+
+        /*
+        |--------------------------------------------------------------------------
+        | Timeline
+        |--------------------------------------------------------------------------
+        */
+
+        {
+          model: BookingStatusLog,
+          as: "statusLogs",
+
+          separate: true,
+
+          order: [
+            ["createdAt", "ASC"],
           ],
         },
 
       ],
 
     });
-
-  return {
-
-    bookings: rows,
-
-    pagination: {
-
-      total: count,
-
-      page,
-
-      limit,
-
-      totalPages: Math.ceil(count / limit),
-
-    },
-
-  };
-}
-
-async getBookingDetails(id: string) {
-
-    return Booking.findByPk(id, {
-
-        include: [
-
-            /*
-            |--------------------------------------------------------------------------
-            | Customer
-            |--------------------------------------------------------------------------
-            */
-
-            {
-                model: User,
-                as: "user",
-                attributes: [
-                    "id",
-                    "firstName",
-                    "lastName",
-                    "mobile",
-                    "email",
-                    "profileImage",
-                ],
-            },
-
-            /*
-            |--------------------------------------------------------------------------
-            | Provider
-            |--------------------------------------------------------------------------
-            */
-
-            {
-                model: Provider,
-                as: "provider",
-                required: false,
-            },
-
-            /*
-            |--------------------------------------------------------------------------
-            | Address
-            |--------------------------------------------------------------------------
-            */
-
-            {
-                model: UserAddress,
-                as: "address",
-            },
-
-            /*
-            |--------------------------------------------------------------------------
-            | Booking Items
-            |--------------------------------------------------------------------------
-            */
-
-            {
-                model: BookingItem,
-                as: "items",
-
-                include: [
-
-                    {
-                        model: Package,
-                        as: "package",
-
-                        include: [
-
-                            {
-                                model: Service,
-                                as: "service",
-
-                                include: [
-
-                                    {
-                                        model: SubCategory,
-                                        as: "subCategory",
-
-                                        include: [
-
-                                            {
-                                                model: Category,
-                                                as: "category",
-                                            },
-
-                                        ],
-
-                                    },
-
-                                ],
-
-                            },
-
-                        ],
-
-                    },
-
-                ],
-
-            },
-
-            /*
-            |--------------------------------------------------------------------------
-            | Requirements
-            |--------------------------------------------------------------------------
-            */
-
-            {
-                model: BookingRequirement,
-                as: "requirements",
-            },
-
-            /*
-            |--------------------------------------------------------------------------
-            | Timeline
-            |--------------------------------------------------------------------------
-            */
-
-            {
-                model: BookingStatusLog,
-                as: "statusLogs",
-
-                separate: true,
-
-                order: [
-                    ["createdAt", "ASC"],
-                ],
-            },
-
-        ],
-
-    });
-}
+  }
 }
 
 export default new AdminBookingRepository();

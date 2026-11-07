@@ -229,7 +229,7 @@ export default function SubServicesPage() {
       {
         field: 'actions',
         headerName: 'Actions',
-        flex: 0.5,
+        flex: 0.9,
         minWidth: 120,
         sortable: false,
         filterable: false,
@@ -263,7 +263,7 @@ export default function SubServicesPage() {
         },
       },
     ],
-     
+
     [serviceNameById],
   );
 

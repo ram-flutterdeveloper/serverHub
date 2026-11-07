@@ -38,6 +38,7 @@ import { useToast } from '@/context/ToastContext';
 import { RecordStatus, type Category, type CategoryPayload } from '@/types/api';
 import { formatDateTime } from '@/utils';
 import { resolveMediaUrl } from '@/utils/media';
+import { STORAGE_URL } from '@/config';
 
 const STATUS_OPTIONS = [
   { value: RecordStatus.ACTIVE, label: 'Active' },
@@ -61,6 +62,12 @@ export default function CategoryDetailPage() {
   const router = useRouter();
   const params = useParams<{ id: string }>();
   const categoryId = params.id;
+  console.log('STORAGE_URL:', STORAGE_URL);
+
+  console.log(
+    'Resolved image URL:',
+    resolveMediaUrl('/uploads/services/1791879928542-306177.webp'),
+  );
   const { showToast } = useToast();
 
   const [dialogOpen, setDialogOpen] = useState(false);

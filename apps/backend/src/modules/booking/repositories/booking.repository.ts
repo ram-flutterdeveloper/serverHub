@@ -9,6 +9,7 @@ import {
 import Package from "../../master-data/models/Package.model";
 import Provider from "../../provider/models/Provider.model";
 import { BookingStatus } from "../../../constants/booking-status";
+import { Op, WhereOptions } from "sequelize";
 
 class BookingRepository {
   /*
@@ -17,20 +18,20 @@ class BookingRepository {
    |--------------------------------------------------------------------------
    */
   async findBookingById(id: string) {
-  return Booking.findByPk(id, {
-    include: [
-      {
-        association: "items",
-      },
-      {
-        association: "requirements",
-      },
-      {
-        association: "statusLogs",
-      },
-    ],
-  });
-}
+    return Booking.findByPk(id, {
+      include: [
+        {
+          association: "items",
+        },
+        {
+          association: "requirements",
+        },
+        {
+          association: "statusLogs",
+        },
+      ],
+    });
+  }
 
   async generateBookingNumber() {
     const count = await Booking.count();
@@ -94,44 +95,44 @@ class BookingRepository {
    |--------------------------------------------------------------------------
    */
   async getBookingById(
-  bookingId: string,
-  userId: string
-) {
-  return Booking.findOne({
-    where: {
-      id: bookingId,
-      userId,
-    },
-
-    include: [
-      {
-        association: "items",
-
-        include: [
-          {
-            association: "package",
-          },
-        ],
+    bookingId: string,
+    userId: string
+  ) {
+    return Booking.findOne({
+      where: {
+        id: bookingId,
+        userId,
       },
 
-      {
-        association: "requirements",
-      },
+      include: [
+        {
+          association: "items",
 
-      {
-        association: "statusLogs",
-      },
+          include: [
+            {
+              association: "package",
+            },
+          ],
+        },
 
-      {
-        association: "provider",
-      },
+        {
+          association: "requirements",
+        },
 
-      {
-        association: "address",
-      },
-    ],
-  });
-}
+        {
+          association: "statusLogs",
+        },
+
+        {
+          association: "provider",
+        },
+
+        {
+          association: "address",
+        },
+      ],
+    });
+  }
 
   async createStatusLog(
     data: Partial<BookingStatusLog>,
@@ -355,77 +356,116 @@ class BookingRepository {
 
     return this.getBookingDetails(id);
   }
-  async getBookingHistory(userId: string) {
-    return Booking.findAll({
-      where: {
-        userId,
-      },
 
-      include: [
-        {
-          model: BookingItem,
-          as: "items",
 
-          include: [
-            {
-              model: Package,
-              as: "package",
-            },
-          ],
-        },
+// Inside your existing repository class:
+async getBookingHistory(
+  userId: string,
+  page: number,
+  limit: number,
+  status?: string
+) {
+  const where: WhereOptions = { userId };
 
-        {
-          model: Provider,
-          as: "provider",
-          required: false,
-        },
-      ],
+  switch (status?.toLowerCase()) {
+    case "completed":
+      where.status = {
+        [Op.in]: ["COMPLETED", "DONE"],
+      };
+      break;
 
-      order: [["createdAt", "DESC"]],
-    });
+    case "canceled":
+    case "cancelled":
+      where.status = {
+        [Op.in]: [
+          "CANCELLED",
+          "CANCELED",
+          "REJECTED",
+          "PROVIDER_REJECTED",
+        ],
+      };
+      break;
+
+    case "bookings":
+    case "all":
+    case undefined:
+    case "":
+      // Return all bookings for this user.
+      break;
+
+    default:
+      throw new Error(`Invalid booking status filter: ${status}`);
   }
+
+  const { rows, count } = await Booking.findAndCountAll({
+    where,
+    include: [
+      {
+        model: BookingItem,
+        as: "items",
+        include: [{ model: Package, as: "package" }],
+      },
+      {
+        model: Provider,
+        as: "provider",
+        required: false,
+      },
+    ],
+    order: [["createdAt", "DESC"]],
+    limit,
+    offset: (page - 1) * limit,
+    distinct: true,
+    col: "id",
+  });
+
+  return {
+    bookings: rows,
+    total: count,
+  };
+}
+
 
   async cancelBooking(
     id: string,
     transaction?: any
-) {
+  ) {
 
     await Booking.update(
-        {
-            status: BookingStatus.CANCELLED,
+      {
+        status: BookingStatus.CANCELLED,
+      },
+      {
+        where: {
+          id,
         },
-        {
-            where: {
-                id,
-            },
-            transaction,
-        }
+        transaction,
+      }
     );
 
     return this.findBookingById(id);
 
-}
+  }
 
-async addStatusLog(
+  async addStatusLog(
     bookingId: string,
     status: BookingStatus,
     remarks: string,
     transaction?: any
-) {
+  ) {
 
     return BookingStatusLog.create(
-        {
-            bookingId,
-            status,
-            remarks,
-        },
-        {
-            transaction,
-        }
+      {
+        bookingId,
+        status,
+        remarks,
+      },
+      {
+        transaction,
+      }
     );
 
 
-}
+  }
 
 }
 

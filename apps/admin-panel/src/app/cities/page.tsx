@@ -242,7 +242,7 @@ export default function CitiesPage() {
           {
             field: 'actions',
             headerName: 'Actions',
-            flex: 0.5,
+            flex: 0.9,
             minWidth: 120,
             sortable: false,
             filterable: false,

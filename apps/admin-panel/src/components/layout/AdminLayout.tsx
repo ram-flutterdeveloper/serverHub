@@ -149,7 +149,7 @@ export default function AdminLayout({ children }: AdminLayoutProps) {
   );
 
   return (
-    <> <Box sx={{ display: 'flex', minHeight: '100vh', bgcolor: 'grey.50' }}>
+    <Box sx={{ display: 'flex', minHeight: '100vh', bgcolor: 'grey.50' }}>
       <AppBar
         position="fixed"
         elevation={0}
@@ -253,6 +253,6 @@ export default function AdminLayout({ children }: AdminLayoutProps) {
       >
         <AuthGuard>{children}</AuthGuard>
       </Box>
-    </Box></>
+    </Box>
   );
 }

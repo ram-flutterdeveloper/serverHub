@@ -79,7 +79,7 @@ interface ProviderDetail {
     openTime: string | null;
     closeTime: string | null;
   }[];
-  bankAccounts?: {
+  bankAccount?: {
     id: string;
     accountHolderName: string;
     bankName: string;
@@ -87,8 +87,10 @@ interface ProviderDetail {
     ifscCode: string;
     accountType: string;
     isPrimary: boolean;
+    upiId: string | null;
+    branchName: string | null;
     verificationStatus: string;
-  }[];
+  } | null;
 }
 
 function DetailRow({ label, value }: { label: string; value: React.ReactNode }) {
@@ -478,37 +480,53 @@ export default function ProviderDetailPage() {
                   )}
                 </CardContent>
               </Card>
-
               <Card>
                 <CardHeader title="Bank accounts" />
                 <Divider />
                 <CardContent>
-                  {detail.bankAccounts && detail.bankAccounts.length > 0 ? (
-                    <Table size="small">
-                      <TableHead>
-                        <TableRow>
-                          <TableCell>Holder</TableCell>
-                          <TableCell>Bank</TableCell>
-                          <TableCell>Account</TableCell>
-                          <TableCell>Status</TableCell>
-                        </TableRow>
-                      </TableHead>
-                      <TableBody>
-                        {detail.bankAccounts.map((account) => (
-                          <TableRow key={account.id}>
-                            <TableCell>
-                              {account.accountHolderName}
-                              {account.isPrimary ? ' (primary)' : ''}
-                            </TableCell>
-                            <TableCell>{account.bankName}</TableCell>
-                            <TableCell>{account.accountNumber}</TableCell>
-                            <TableCell>
-                              <StatusChip status={account.verificationStatus} />
-                            </TableCell>
-                          </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
+                  {detail.bankAccount ? (
+                    <Stack spacing={1}>
+                      <DetailRow
+                        label="Account holder"
+                        value={detail.bankAccount.accountHolderName}
+                      />
+                      <DetailRow
+                        label="Bank name"
+                        value={detail.bankAccount.bankName}
+                      />
+                      <DetailRow
+                        label="Branch"
+                        value={detail.bankAccount.branchName ?? '—'}
+                      />
+                      <DetailRow
+                        label="Account number"
+                        value={detail.bankAccount.accountNumber}
+                      />
+                      <DetailRow
+                        label="IFSC code"
+                        value={detail.bankAccount.ifscCode}
+                      />
+                      <DetailRow
+                        label="UPI ID"
+                        value={detail.bankAccount.upiId ?? '—'}
+                      />
+                      <DetailRow
+                        label="Account type"
+                        value={detail.bankAccount.accountType}
+                      />
+                      <DetailRow
+                        label="Primary account"
+                        value={detail.bankAccount.isPrimary ? 'Yes' : 'No'}
+                      />
+                      <DetailRow
+                        label="Verification status"
+                        value={
+                          <StatusChip
+                            status={detail.bankAccount.verificationStatus}
+                          />
+                        }
+                      />
+                    </Stack>
                   ) : (
                     <Typography variant="body2" color="text.secondary">
                       No bank account on file.
@@ -517,7 +535,8 @@ export default function ProviderDetailPage() {
                 </CardContent>
               </Card>
 
-              {detail.bankAccounts === undefined && (
+
+              {detail.bankAccount === undefined && (
                 <Alert severity="info">
                   The admin provider detail payload returns locations, services, documents and working
                   hours. Bank accounts are not part of that response.

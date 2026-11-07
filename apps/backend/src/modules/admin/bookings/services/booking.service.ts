@@ -6,14 +6,10 @@ import bookingRepository
 class BookingService {
 
     async dashboard() {
-
         return bookingRepository.getDashboard();
-
     }
 
-
-
-
+    
     async getBookings(query: any) {
 
         return bookingRepository.getBookings({
@@ -42,21 +38,21 @@ class BookingService {
 
     async getBooking(id: string) {
 
-    const booking =
-        await bookingRepository.getBookingDetails(id);
+        const booking =
+            await bookingRepository.getBookingDetails(id);
 
-    if (!booking) {
+        if (!booking) {
 
-        throw new AppError(
-            "Booking not found",
-            404
-        );
+            throw new AppError(
+                "Booking not found",
+                404
+            );
+
+        }
+
+        return booking;
 
     }
-
-    return booking;
-
-}
 
 }
 

@@ -249,7 +249,8 @@ async function execute<T>(method: string, path: string, options: RequestOptions 
     };
   }
 
-  if (response.status === 401 && auth && !skipAuthRetry) {
+  if (response.status === 401 && auth && !skipAuthRetry) 
+    {
     const newToken = await refreshAccessToken();
     if (newToken) {
       return execute<T>(method, path, { ...options, skipAuthRetry: true });

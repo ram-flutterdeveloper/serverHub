@@ -40,22 +40,56 @@ class BookingController {
   |--------------------------------------------------------------------------
   */
 
- 
+
+
+  // history = asyncHandler(
+  //   async (req: Request, res: Response) => {
+
+  //     const bookings =
+  //       await bookingHistoryService.execute(
+  //         req.user!.userId
+  //       );
+
+  //     return ApiResponseHelper.success(
+  //       res,
+  //       bookings,
+  //       "Booking history fetched successfully"
+  //     );
+
+  //   }
+  // );
 
   history = asyncHandler(
     async (req: Request, res: Response) => {
+      const page = Math.max(
+        1,
+        Number.parseInt(req.query.page as string, 10) || 1
+      );
 
-      const bookings =
-        await bookingHistoryService.execute(
-          req.user!.userId
-        );
+      const limit = Math.min(
+        100,
+        Math.max(
+          1,
+          Number.parseInt(req.query.limit as string, 10) || 10
+        )
+      );
+      const status =
+        typeof req.query.status === "string"
+          ? req.query.status.trim().toLowerCase()
+          : undefined;
+
+      const result = await bookingHistoryService.execute(
+        req.user!.userId,
+        page,
+        limit, 
+        status
+      );
 
       return ApiResponseHelper.success(
         res,
-        bookings,
+        result,
         "Booking history fetched successfully"
       );
-
     }
   );
 
@@ -90,7 +124,7 @@ class BookingController {
   |--------------------------------------------------------------------------
   */
 
-  cancel = asyncHandler(async (req: Request, res:Response) => {
+  cancel = asyncHandler(async (req: Request, res: Response) => {
 
     const result =
       await cancelBookingService.execute(
@@ -109,7 +143,7 @@ class BookingController {
 
   });
 
-  
+
 
 }
 

@@ -124,18 +124,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const verifyOtp = useCallback(
-    async (mobile: string, otp: string) => {
+    async (mobile: string, otp: string) => 
+      {
       const res = await authService.verifyOtp(mobile, otp);
       tokenStorage.setTokens(res.data.accessToken, res.data.refreshToken);
-
-      if (res.data.user.role !== UserRole.ADMIN) {
+      if (res.data.user.role !== UserRole.ADMIN)
+        {
         setError(NON_ADMIN_MESSAGE);
         tokenStorage.clear();
         setUser(null);
         setStatus('unauthenticated');
         throw new Error(NON_ADMIN_MESSAGE);
-      }
-
+        }
       await loadProfile();
     },
     [loadProfile],
@@ -145,7 +145,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     try {
       await authService.logout();
     } catch {
-      /* the backend logout is a no-op; local session must still be cleared */
     } finally {
       clearSession();
     }

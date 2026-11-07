@@ -231,7 +231,7 @@ export default function ServicesPage() {
       {
         field: 'actions',
         headerName: 'Actions',
-        flex: 0.5,
+        flex: 0.9,
         minWidth: 120,
         sortable: false,
         filterable: false,
@@ -242,6 +242,7 @@ export default function ServicesPage() {
               <Button
                 size="small"
                 startIcon={<Edit />}
+
                 onClick={(event) => {
                   event.stopPropagation();
                   openEdit(service);
@@ -253,6 +254,8 @@ export default function ServicesPage() {
                 size="small"
                 color="error"
                 startIcon={<DeleteOutline />}
+
+
                 onClick={(event) => {
                   event.stopPropagation();
                   setDeleteTarget(service);
@@ -265,7 +268,7 @@ export default function ServicesPage() {
         },
       },
     ],
-     
+
     [categoryNameById],
   );
 

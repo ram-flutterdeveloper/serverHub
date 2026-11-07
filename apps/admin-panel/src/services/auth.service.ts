@@ -3,7 +3,8 @@ import type { AuthUser, RegisterDevicePayload, SendOtpResult, VerifyOtpResult } 
 
 export const authService = {
   /** POST /api/v1/auth/send-otp */
-  sendOtp(mobile: string, signal?: AbortSignal) {
+  sendOtp(mobile: string, signal?: AbortSignal) 
+  {
     return apiClient.post<SendOtpResult>('/auth/send-otp', { mobile }, { auth: false, signal });
   },
 

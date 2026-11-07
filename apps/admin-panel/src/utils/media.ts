@@ -9,6 +9,7 @@ export function resolveMediaUrl(path?: string | null): string | null {
   const value = path.trim();
   if (!value) return null;
   if (/^(https?:)?\/\//i.test(value) || value.startsWith('data:')) return value;
+ 
 
   const normalized = value.startsWith('/') ? value : `/${value}`;
 

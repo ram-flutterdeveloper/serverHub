@@ -288,8 +288,8 @@ export default function ReviewsPage() {
           {
             field: 'actions',
             headerName: 'Actions',
-            flex: 0.6,
-            minWidth: 150,
+            flex: 0.9,
+            minWidth: 240,
             sortable: false,
             filterable: false,
             renderCell: (params) => {

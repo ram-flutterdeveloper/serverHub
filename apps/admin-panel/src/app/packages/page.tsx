@@ -130,10 +130,7 @@ export default function PackagesPage() {
       showToast('Select a service (required by the backend)', 'error');
       return;
     }
-    if (!form.subCategoryId) {
-      showToast('Select a sub service (required by the validator)', 'error');
-      return;
-    }
+
     if (!form.name.trim()) {
       showToast('Package name is required', 'error');
       return;
@@ -220,25 +217,34 @@ export default function PackagesPage() {
           );
         },
       },
+
       {
         field: 'defaultPrice',
         headerName: 'Price',
         flex: 0.7,
         minWidth: 140,
         sortable: false,
-        valueGetter: (value: number | string, row: PackageRecord) => (
-          <Box>
-            <Typography variant="body2" fontWeight={600}>
-              {formatCurrency(Number(value))}
-            </Typography>
-            {row.offerPrice != null && (
-              <Typography variant="caption" color="success.main">
-                Offer {formatCurrency(Number(row.offerPrice))}
+        renderCell: (params) => {
+          const item = params.row as PackageRecord;
+
+          return (
+            <Box>
+              <Typography variant="body2" fontWeight={600}>
+                {formatCurrency(Number(item.defaultPrice))}
               </Typography>
-            )}
-          </Box>
-        ),
+
+              {item.offerPrice != null &&
+                Number(item.offerPrice) > 0 &&
+                Number(item.offerPrice) < Number(item.defaultPrice) && (
+                  <Typography variant="caption" color="success.main">
+                    Offer {formatCurrency(Number(item.offerPrice))}
+                  </Typography>
+                )}
+            </Box>
+          );
+        },
       },
+
       {
         field: 'durationMinutes',
         headerName: 'Duration',
@@ -279,7 +285,7 @@ export default function PackagesPage() {
       {
         field: 'actions',
         headerName: 'Actions',
-        flex: 0.5,
+        flex: 0.9,
         minWidth: 120,
         sortable: false,
         filterable: false,
@@ -313,7 +319,7 @@ export default function PackagesPage() {
         },
       },
     ],
-     
+
     [serviceNameById],
   );
 

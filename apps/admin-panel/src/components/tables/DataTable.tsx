@@ -112,40 +112,123 @@ export default function DataTable<R = GridValidRowModel>({
         rows={rows as GridValidRowModel[]}
         columns={columns}
         loading={loading}
-        rowCount={clientPagination ? rows.length : (totalRows ?? rows.length)}
+        // rowCount={clientPagination ? rows.length : (totalRows ?? rows.length)}
+        rowCount={clientPagination ? undefined : (totalRows ?? rows.length)}
         paginationMode={clientPagination ? 'client' : 'server'}
         paginationModel={clientPagination ? undefined : { page, pageSize }}
         onPaginationModelChange={
           clientPagination
             ? undefined
             : (model) => {
-                if (model.page !== page && onPageChange) {
-                  onPageChange(model.page);
-                }
-                if (model.pageSize !== pageSize && onPageSizeChange) {
-                  onPageSizeChange(model.pageSize);
-                }
+              if (model.page !== page && onPageChange) {
+                onPageChange(model.page);
               }
+              if (model.pageSize !== pageSize && onPageSizeChange) {
+                onPageSizeChange(model.pageSize);
+              }
+            }
         }
         checkboxSelection={checkboxSelection}
         onRowClick={onRowClick ? handleRowClick : undefined}
-        rowHeight={52}
+        // rowHeight={62}
+        getRowHeight={() => 'auto'}
+        getEstimatedRowHeight={() => 80}
         disableColumnFilter
         disableColumnMenu
         hideFooterSelectedRowCount
         slots={{
           toolbar: renderToolbar,
           loadingOverlay: CustomLoadingOverlay,
-          noRowsOverlay: () => <CustomNoRowsOverlay message={emptyMessage} />,
+          // noRowsOverlay: () => <CustomNoRowsOverlay message={emptyMessage} />,
         }}
+        // sx={{
+        //   border: 0,
+        //   '& .MuiDataGrid-columnHeaders': {
+        //     bgcolor: 'grey.50',
+        //   },
+        //   '& .MuiDataGrid-cell': {
+        //     borderColor: 'divider',
+        //   },
+        //   '& .MuiDataGrid-row:hover': {
+        //     bgcolor: 'action.hover',
+        //     cursor: onRowClick ? 'pointer' : 'default',
+        //   },
+        // }}
+        // sx={{
+        //   border: 0,
+
+        //   '& .MuiDataGrid-columnHeaders': {
+        //     bgcolor: 'grey.50',
+        //   },
+
+        //   '& .MuiDataGrid-columnHeaderTitle': {
+        //     fontWeight: 600,
+        //   },
+
+        //   '& .MuiDataGrid-row': {
+        //     alignItems: 'stretch',
+        //   },
+
+        //   '& .MuiDataGrid-cell': {
+        //     borderColor: 'divider',
+        //     display: 'flex',
+        //     alignItems: 'center',
+        //     lineHeight: 'normal',
+        //     py: 1,
+        //     boxSizing: 'border-box',
+        //   },
+
+        //   '& .MuiDataGrid-cellContent': {
+        //     overflow: 'hidden',
+        //     textOverflow: 'ellipsis',
+        //   },
+
+        //   '& .MuiDataGrid-row:hover': {
+        //     bgcolor: 'action.hover',
+        //     cursor: onRowClick ? 'pointer' : 'default',
+        //   },
+        // }}
         sx={{
           border: 0,
+
           '& .MuiDataGrid-columnHeaders': {
             bgcolor: 'grey.50',
           },
+
+          '& .MuiDataGrid-columnHeaderTitle': {
+            fontWeight: 600,
+            whiteSpace: 'normal',
+          },
+
+          '& .MuiDataGrid-row': {
+            alignItems: 'stretch',
+          },
+
           '& .MuiDataGrid-cell': {
             borderColor: 'divider',
+            display: 'flex',
+            alignItems: 'center',
+            boxSizing: 'border-box',
+            minWidth: 0,
+            py: 1.5,
+            overflow: 'hidden',
           },
+
+          // Allow cell text to wrap onto multiple lines.
+          '& .MuiDataGrid-cellContent': {
+            whiteSpace: 'normal',
+            overflowWrap: 'anywhere',
+            wordBreak: 'normal',
+            lineHeight: 1.5,
+            minWidth: 0,
+            width: '100%',
+          },
+
+          '& .MuiDataGrid-cell > *': {
+            minWidth: 0,
+            maxWidth: '100%',
+          },
+
           '& .MuiDataGrid-row:hover': {
             bgcolor: 'action.hover',
             cursor: onRowClick ? 'pointer' : 'default',

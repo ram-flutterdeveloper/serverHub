@@ -78,7 +78,7 @@ export default function BookingsPage() {
       {
         field: 'bookingNumber',
         headerName: 'Booking',
-        flex: 0.8,
+        flex: 0.5,
         minWidth: 150,
         sortable: false,
         renderCell: (params) => (
@@ -95,7 +95,7 @@ export default function BookingsPage() {
       {
         field: 'user',
         headerName: 'Customer',
-        flex: 1,
+        flex: 0.4,
         minWidth: 180,
         sortable: false,
         valueGetter: (value: Booking['user']) =>
@@ -104,20 +104,45 @@ export default function BookingsPage() {
       {
         field: 'provider',
         headerName: 'Provider',
-        flex: 1,
-        minWidth: 170,
+        flex: 0.5,
+        minWidth: 80,
         sortable: false,
         valueGetter: (value: Booking['provider']) =>
           value ? value.businessName || value.ownerName || 'Provider' : 'Unassigned',
       },
+      // {
+      //   field: 'bookingDate',
+      //   headerName: 'Schedule',
+      //   flex: 1,
+      //   minWidth: 180,
+      //   sortable: false,
+      //   valueGetter: (value: string, row: Booking) =>
+      //     `${formatDateTime(value)} • ${row.bookingTime ?? ''}`.trim(),
+      // },
+
       {
         field: 'bookingDate',
         headerName: 'Schedule',
-        flex: 0.9,
-        minWidth: 160,
+        flex: 1,
+        minWidth: 180,
         sortable: false,
-        valueGetter: (value: string, row: Booking) =>
-          `${formatDateTime(value)} • ${row.bookingTime ?? ''}`.trim(),
+        valueGetter: (value: string, row: Booking) => {
+          const date = value
+            ? new Date(`${value}T00:00:00`)
+            : null;
+
+          const formattedDate = date
+            ? date.toLocaleDateString('en-US', {
+              month: 'short',
+              day: '2-digit',
+              year: 'numeric',
+            })
+            : '';
+
+          return [formattedDate, row.bookingTime]
+            .filter(Boolean)
+            .join(' • ');
+        },
       },
       {
         field: 'status',

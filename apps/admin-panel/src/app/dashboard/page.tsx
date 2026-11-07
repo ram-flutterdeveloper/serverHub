@@ -58,12 +58,14 @@ function initials(name: string | null | undefined, fallback: string): string {
     .join('');
 }
 
-export default function DashboardPage() {
+export default function DashboardPage()
+ {
   const router = useRouter();
 
   const users = useApiData((signal) => usersService.dashboard(signal), []);
   const providers = useApiData((signal) => providersService.dashboard(signal), []);
   const bookings = useApiData((signal) => bookingsService.dashboard(signal), []);
+ 
   const recentBookings = useApiData(
     (signal) => bookingsService.list({ page: 1, limit: 5 }, signal),
     [],
